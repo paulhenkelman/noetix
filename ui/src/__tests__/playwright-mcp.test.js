@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import http from 'http';
-import { probeMcpEndpoint, detectLiveEndpoint, formatDiagnostics } from '../gateway/playwright-mcp.js';
+import { probeMcpEndpoint, detectLiveEndpoint, formatDiagnostics } from '../server/playwright-mcp.js';
 
 describe('playwright-mcp', () => {
   let server;

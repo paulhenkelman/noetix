@@ -38,8 +38,8 @@ const kbMcp = noetix.codex?.mcp_servers?.kb || {};
 const contentMcp = noetix.codex?.mcp_servers?.content || {};
 const playwrightMcp = noetix.codex?.mcp_servers?.playwright || {};
 
-const kbServerPath = path.join(PROJECT_ROOT, 'ui', 'src', 'gateway', 'kb-mcp-server.js');
-const contentServerPath = path.join(PROJECT_ROOT, 'ui', 'src', 'gateway', 'content-mcp-server.js');
+const kbServerPath = path.join(PROJECT_ROOT, 'ui', 'src', 'server', 'kb-mcp-server.js');
+const contentServerPath = path.join(PROJECT_ROOT, 'ui', 'src', 'server', 'content-mcp-server.js');
 const playwrightOutputDir = expandHome(playwrightMcp.output_dir || '~/.cache/noetix-playwright');
 const cdpEndpoint = playwrightMcp.cdp_endpoint || 'http://localhost:9222';
 

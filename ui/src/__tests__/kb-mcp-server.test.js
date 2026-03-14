@@ -6,7 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const KB_MCP_SERVER = path.join(__dirname, '..', 'gateway', 'kb-mcp-server.js');
+const KB_MCP_SERVER = path.join(__dirname, '..', 'server', 'kb-mcp-server.js');
 
 /**
  * Tests for the Noetix KB MCP server (stdio JSON-RPC transport).

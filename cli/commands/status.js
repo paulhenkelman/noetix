@@ -78,32 +78,32 @@ export async function status() {
   console.log('');
 
   if (hasFrontend) {
-    const gatewayPort = state.gatewayPort || 8788;
-    let gatewayStatus = 'stopped';
+    const uiPort = state.uiPort || state.gatewayPort || 8788;
+    let uiStatus = 'stopped';
     let detail = '';
 
     const uiService = state.uiServiceName || 'noetix-ui';
     if (checkSystemd(uiService)) {
-      gatewayStatus = 'running';
+      uiStatus = 'running';
       detail = '(systemd)';
     } else {
-      const pid = checkPid(path.join(installDir, '.noetix-gateway.pid'));
+      const pid = checkPid(path.join(installDir, '.noetix-ui.pid'));
       if (pid) {
-        gatewayStatus = 'running';
+        uiStatus = 'running';
         detail = `(PID: ${pid})`;
       }
     }
 
     // Health check
-    if (gatewayStatus === 'running') {
-      const healthy = await httpCheck(`http://127.0.0.1:${gatewayPort}/health`);
+    if (uiStatus === 'running') {
+      const healthy = await httpCheck(`http://127.0.0.1:${uiPort}/health`);
       if (healthy) {
-        console.log(chalk.green(`  Gateway:  running ${detail} — http://127.0.0.1:${gatewayPort}`));
+        console.log(chalk.green(`  Noetix UI: running ${detail} — http://127.0.0.1:${uiPort}`));
       } else {
-        console.log(chalk.yellow(`  Gateway:  running ${detail} — not responding on port ${gatewayPort}`));
+        console.log(chalk.yellow(`  Noetix UI: running ${detail} — not responding on port ${uiPort}`));
       }
     } else {
-      console.log(chalk.red(`  Gateway:  stopped`));
+      console.log(chalk.red(`  Noetix UI: stopped`));
     }
 
     // Vite dev server check

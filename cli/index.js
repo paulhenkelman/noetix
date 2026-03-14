@@ -21,7 +21,7 @@ program
   .option('-y, --yes', 'Accept all defaults (non-interactive)')
   .option('--backend-url <url>', 'Backend URL (frontend-only mode)')
   .option('--backend-deploy <method>', 'Backend deployment: native or docker', 'native')
-  .option('--gateway-port <port>', 'Gateway port')
+  .option('-p, --port <port>', 'Noetix UI port')
   .option('--backend-port <port>', 'Backend port')
   .option('--vite-port <port>', 'Frontend dev port')
   .action(init);

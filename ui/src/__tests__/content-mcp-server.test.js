@@ -8,7 +8,7 @@ import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONTENT_MCP_SERVER = path.join(__dirname, '..', 'gateway', 'content-mcp-server.js');
+const CONTENT_MCP_SERVER = path.join(__dirname, '..', 'server', 'content-mcp-server.js');
 
 /**
  * Tests for the Noetix Content Services MCP server (stdio JSON-RPC transport).

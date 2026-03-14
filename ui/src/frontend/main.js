@@ -1203,5 +1203,5 @@ async function bootstrap() {
 }
 
 bootstrap().catch((e) => {
-  document.getElementById('app').innerHTML = `<div style="padding:16px;color:#ffb3b3">Gateway/backend unavailable: ${esc(e.message)}</div>`;
+  document.getElementById('app').innerHTML = `<div style="padding:16px;color:#ffb3b3">Server unavailable: ${esc(e.message)}</div>`;
 });

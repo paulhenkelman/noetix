@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node src/gateway/server.js",
+    "dev": "node src/server/server.js",
     "dev:frontend": "vite",
     "build": "vite build --outDir ../../dist",
     "test": "vitest run",

@@ -2,7 +2,7 @@
  * Noetix configuration loader.
  *
  * Reads ui.config and noetix.config from the project root and exports
- * a flat config object used by all gateway modules.
+ * a flat config object used by all server modules.
  *
  * Uses smol-toml for TOML parsing.
  */
@@ -41,12 +41,12 @@ const config = {
   projectRoot: PROJECT_ROOT,
   projectName: noetix.project?.name || 'noetix',
 
-  // Gateway
-  host: process.env.HOST || ui.gateway?.host || '0.0.0.0',
-  port: Number(process.env.PORT || ui.gateway?.port || 8788),
-  corsOrigins: ui.gateway?.cors_origins || ['http://localhost:5174', 'http://127.0.0.1:5174'],
-  uploadTmpDir: ui.gateway?.upload_tmp_dir || '/tmp/noetix-upload',
-  actionsMode: process.env.ACTIONS_MODE || ui.gateway?.actions_mode || 'remote',
+  // Server
+  host: process.env.HOST || ui.server?.host || '0.0.0.0',
+  port: Number(process.env.PORT || ui.server?.port || 8788),
+  corsOrigins: ui.server?.cors_origins || ['http://localhost:5174', 'http://127.0.0.1:5174'],
+  uploadTmpDir: ui.server?.upload_tmp_dir || '/tmp/noetix-upload',
+  actionsMode: process.env.ACTIONS_MODE || ui.server?.actions_mode || 'remote',
 
   // Backend
   remoteBase: process.env.REMOTE_BASE || ui.backend?.url || 'http://10.0.0.50:8001',
