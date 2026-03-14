@@ -82,7 +82,8 @@ export async function status() {
     let gatewayStatus = 'stopped';
     let detail = '';
 
-    if (checkSystemd('noetix-ui')) {
+    const uiService = state.uiServiceName || 'noetix-ui';
+    if (checkSystemd(uiService)) {
       gatewayStatus = 'running';
       detail = '(systemd)';
     } else {
@@ -120,7 +121,8 @@ export async function status() {
     let backendStatus = 'stopped';
     let detail = '';
 
-    if (checkSystemd('noetix-knowledge')) {
+    const beService = state.backendServiceName || 'noetix-knowledge';
+    if (checkSystemd(beService)) {
       backendStatus = 'running';
       detail = '(systemd)';
     } else if (checkDocker('noetix-backend')) {

@@ -17,6 +17,7 @@ import {
   installCodex, launchCodexLogin,
   isDockerInstalled, isDockerRunning, hasNvidiaGpu,
   isFfmpegInstalled, isNodeVersionOk,
+  isPortInUse, findAvailablePort,
 } from '../lib/checks.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -37,11 +38,57 @@ function expandHome(p) {
   return p;
 }
 
+function safeReadJson(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch { return null; }
+}
+
 export async function init(options) {
   console.log('');
   console.log(chalk.bold('  Noetix Setup'));
   console.log(chalk.dim('  AI-powered knowledge platform'));
   console.log('');
+
+  // --- Check for existing installation ---
+  let installDir = path.resolve(options.dir || '.');
+  const existingState = safeReadJson(path.join(installDir, '.noetix-state.json'));
+
+  if (existingState) {
+    console.log(chalk.yellow(`  Existing deployment detected in ${installDir}`));
+    console.log(chalk.dim(`    Mode: ${existingState.mode} | Installed: ${existingState.installedAt || 'unknown'}`));
+    console.log('');
+
+    const action = await select({
+      message: 'What would you like to do?',
+      choices: [
+        { name: 'Update existing installation', value: 'update' },
+        { name: 'Create alternate installation (side-by-side)', value: 'alternate' },
+        { name: 'Cancel', value: 'cancel' },
+      ],
+    });
+
+    if (action === 'cancel') {
+      console.log(chalk.dim('  Cancelled.'));
+      process.exit(0);
+    }
+
+    if (action === 'alternate') {
+      // Suggest next available directory name
+      let suffix = 2;
+      let altDir = `${installDir}-${suffix}`;
+      while (fs.existsSync(altDir)) {
+        suffix++;
+        altDir = `${installDir}-${suffix}`;
+      }
+      installDir = await input({
+        message: 'Alternate installation directory',
+        default: altDir,
+      });
+      installDir = path.resolve(installDir);
+    }
+    console.log('');
+  }
 
   // --- Mode selection ---
   const mode = options.mode || await select({
@@ -53,7 +100,6 @@ export async function init(options) {
     ],
   });
 
-  const installDir = path.resolve(options.dir || '.');
   const needsFrontend = mode === 'full' || mode === 'frontend';
   const needsBackend = mode === 'full' || mode === 'backend';
 
@@ -75,14 +121,23 @@ export async function init(options) {
   }
 
   // =================================================================
-  // Configuration prompts
+  // Port conflict detection & configuration prompts
   // =================================================================
 
   const config = { mode };
 
   if (needsFrontend) {
-    config.gatewayPort = await input({ message: 'Gateway port', default: '8788' });
-    config.vitePort = await input({ message: 'Frontend dev port', default: '5174' });
+    const defaultGw = findAvailablePort(8788, 10);
+    if (defaultGw !== 8788) {
+      console.log(chalk.yellow(`  Port 8788 is in use — suggesting ${defaultGw}`));
+    }
+    config.gatewayPort = await input({ message: 'Gateway port', default: String(defaultGw) });
+
+    const defaultVite = findAvailablePort(5174, 1);
+    if (defaultVite !== 5174) {
+      console.log(chalk.yellow(`  Port 5174 is in use — suggesting ${defaultVite}`));
+    }
+    config.vitePort = await input({ message: 'Frontend dev port', default: String(defaultVite) });
   }
 
   if (mode === 'frontend') {
@@ -90,7 +145,6 @@ export async function init(options) {
       message: 'Backend URL (where the knowledge server is running)',
       default: 'http://10.0.0.50:8001',
     });
-    // Normalize URL
     if (!/^https?:\/\//.test(config.backendUrl)) {
       config.backendUrl = `http://${config.backendUrl}`;
     }
@@ -101,7 +155,11 @@ export async function init(options) {
   }
 
   if (needsBackend) {
-    config.backendPort = await input({ message: 'Backend port', default: '8001' });
+    const defaultBe = findAvailablePort(8001, 10);
+    if (defaultBe !== 8001) {
+      console.log(chalk.yellow(`  Port 8001 is in use — suggesting ${defaultBe}`));
+    }
+    config.backendPort = await input({ message: 'Backend port', default: String(defaultBe) });
     config.backendHost = await input({ message: 'Backend listen host', default: '0.0.0.0' });
     config.openaiKey = await password({
       message: 'OpenAI API key (or press Enter to configure later)',
@@ -112,6 +170,15 @@ export async function init(options) {
   if (mode === 'full') {
     config.backendUrl = `http://127.0.0.1:${config.backendPort}`;
     config.socksProxy = '';
+  }
+
+  // Final port conflict warning for chosen ports
+  const chosenPorts = [config.gatewayPort, config.vitePort, config.backendPort].filter(Boolean);
+  const conflicts = chosenPorts.filter(p => isPortInUse(Number(p)));
+  if (conflicts.length > 0) {
+    console.log(chalk.red(`  Warning: port(s) ${conflicts.join(', ')} are currently in use.`));
+    const proceed = await confirm({ message: 'Continue anyway?', default: false });
+    if (!proceed) process.exit(1);
   }
 
   // =================================================================
@@ -242,6 +309,8 @@ export async function init(options) {
     backendPort: config.backendPort,
     backendUrl: config.backendUrl,
     vitePort: config.vitePort,
+    uiServiceName: config.uiServiceName,
+    backendServiceName: config.backendServiceName,
     installedAt: new Date().toISOString(),
   };
   fs.writeFileSync(path.join(installDir, '.noetix-state.json'), JSON.stringify(state, null, 2));
@@ -460,9 +529,15 @@ async function createSystemdServices(installDir, config) {
   const needsFrontend = config.mode === 'full' || config.mode === 'frontend';
   const needsBackend = config.mode === 'full' || config.mode === 'backend';
 
+  // Derive instance suffix from directory name for multi-instance support
+  const dirName = path.basename(installDir);
+  const instanceSuffix = dirName === 'noetix' ? '' : `-${dirName.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+  const uiServiceName = `noetix-ui${instanceSuffix}`;
+  const backendServiceName = `noetix-knowledge${instanceSuffix}`;
+
   if (needsFrontend) {
     const service = `[Unit]
-Description=Noetix UI Gateway
+Description=Noetix UI Gateway (${dirName})
 After=network.target
 
 [Service]
@@ -476,13 +551,13 @@ Environment=NODE_ENV=production
 [Install]
 WantedBy=default.target
 `;
-    fs.writeFileSync(path.join(systemdDir, 'noetix-ui.service'), service);
+    fs.writeFileSync(path.join(systemdDir, `${uiServiceName}.service`), service);
   }
 
   if (needsBackend) {
     const composePath = path.join(installDir, 'docker-compose.yml');
     const service = `[Unit]
-Description=Noetix Knowledge Backend (Docker)
+Description=Noetix Knowledge Backend (${dirName})
 After=network.target docker.service
 Requires=docker.service
 
@@ -497,10 +572,14 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 `;
-    fs.writeFileSync(path.join(systemdDir, 'noetix-knowledge.service'), service);
+    fs.writeFileSync(path.join(systemdDir, `${backendServiceName}.service`), service);
   }
 
+  // Store service names in config for start/stop/status
+  config.uiServiceName = uiServiceName;
+  config.backendServiceName = backendServiceName;
+
   console.log(chalk.dim('  Systemd services created. Enable with:'));
-  if (needsFrontend) console.log(chalk.dim('    systemctl --user enable --now noetix-ui'));
-  if (needsBackend) console.log(chalk.dim('    systemctl --user enable --now noetix-knowledge'));
+  if (needsFrontend) console.log(chalk.dim(`    systemctl --user enable --now ${uiServiceName}`));
+  if (needsBackend) console.log(chalk.dim(`    systemctl --user enable --now ${backendServiceName}`));
 }

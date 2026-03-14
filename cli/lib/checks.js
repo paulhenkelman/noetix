@@ -87,3 +87,43 @@ export function isPythonInstalled() {
 export function getPythonVersion() {
   return getCommandVersion('python3');
 }
+
+// --- Port checks ---
+
+export function isPortInUse(port) {
+  try {
+    const out = execSync(
+      `ss -tlnH sport = :${port} 2>/dev/null || netstat -tln 2>/dev/null | grep ':${port} '`,
+      { encoding: 'utf-8', timeout: 3000 }
+    ).trim();
+    return out.length > 0;
+  } catch { return false; }
+}
+
+export function findAvailablePort(preferred, step = 10) {
+  let port = preferred;
+  const max = preferred + step * 20;
+  while (port < max) {
+    if (!isPortInUse(port)) return port;
+    port += step;
+  }
+  return preferred; // fall back to preferred if nothing found
+}
+
+// --- Existing installations ---
+
+export function findNoetixInstallations(searchDir) {
+  const found = [];
+  try {
+    const entries = require('fs').readdirSync(searchDir, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      const stateFile = require('path').join(searchDir, e.name, '.noetix-state.json');
+      try {
+        const state = JSON.parse(require('fs').readFileSync(stateFile, 'utf-8'));
+        found.push({ dir: require('path').join(searchDir, e.name), ...state });
+      } catch { /* not a noetix install */ }
+    }
+  } catch { /* dir doesn't exist */ }
+  return found;
+}

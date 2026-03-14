@@ -36,21 +36,22 @@ export async function stop(service) {
   const hasBackend = mode === 'full' || mode === 'backend';
 
   if (stopFrontend && hasFrontend) {
-    await stopGateway(installDir);
+    await stopGateway(installDir, state);
   }
 
   if (stopBackend && hasBackend) {
-    await stopBackendService(installDir);
+    await stopBackendService(installDir, state);
   }
 }
 
-async function stopGateway(installDir) {
+async function stopGateway(installDir, state) {
   // Try systemd first
+  const uiService = state?.uiServiceName || 'noetix-ui';
   try {
-    const status = execSync('systemctl --user is-active noetix-ui 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (status === 'active') {
-      const spinner = ora('Stopping gateway (systemd)').start();
-      execSync('systemctl --user stop noetix-ui', { stdio: 'pipe' });
+    const svcStatus = execSync(`systemctl --user is-active ${uiService} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+    if (svcStatus === 'active') {
+      const spinner = ora(`Stopping gateway (systemd: ${uiService})`).start();
+      execSync(`systemctl --user stop ${uiService}`, { stdio: 'pipe' });
       spinner.succeed('Gateway stopped');
       return;
     }
@@ -76,15 +77,16 @@ async function stopGateway(installDir) {
   }
 }
 
-async function stopBackendService(installDir) {
+async function stopBackendService(installDir, state) {
   const composePath = path.join(installDir, 'docker-compose.yml');
 
   // Try systemd first
+  const beService = state?.backendServiceName || 'noetix-knowledge';
   try {
-    const status = execSync('systemctl --user is-active noetix-knowledge 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (status === 'active') {
-      const spinner = ora('Stopping backend (systemd)').start();
-      execSync('systemctl --user stop noetix-knowledge', { stdio: 'pipe' });
+    const svcStatus = execSync(`systemctl --user is-active ${beService} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+    if (svcStatus === 'active') {
+      const spinner = ora(`Stopping backend (systemd: ${beService})`).start();
+      execSync(`systemctl --user stop ${beService}`, { stdio: 'pipe' });
       spinner.succeed('Backend stopped');
       return;
     }

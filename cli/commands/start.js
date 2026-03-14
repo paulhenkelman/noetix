@@ -63,10 +63,11 @@ async function startGateway(installDir, state) {
   }
 
   // Check if already running via systemd
+  const uiService = state.uiServiceName || 'noetix-ui';
   try {
-    const status = execSync('systemctl --user is-active noetix-ui 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (status === 'active') {
-      console.log(chalk.green('Gateway already running (systemd)'));
+    const svcStatus = execSync(`systemctl --user is-active ${uiService} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+    if (svcStatus === 'active') {
+      console.log(chalk.green(`Gateway already running (systemd: ${uiService})`));
       return;
     }
   } catch { /* not managed by systemd, start manually */ }
@@ -108,10 +109,11 @@ async function startBackendService(installDir, state) {
   }
 
   // Check if already running via systemd
+  const beService = state.backendServiceName || 'noetix-knowledge';
   try {
-    const status = execSync('systemctl --user is-active noetix-knowledge 2>/dev/null', { encoding: 'utf-8' }).trim();
-    if (status === 'active') {
-      console.log(chalk.green('Backend already running (systemd)'));
+    const svcStatus = execSync(`systemctl --user is-active ${beService} 2>/dev/null`, { encoding: 'utf-8' }).trim();
+    if (svcStatus === 'active') {
+      console.log(chalk.green(`Backend already running (systemd: ${beService})`));
       return;
     }
   } catch { /* not managed by systemd */ }
