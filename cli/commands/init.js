@@ -14,9 +14,9 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
   isCodexInstalled, getCodexVersion, isCodexLoggedIn,
-  installCodex, launchCodexLogin,
+  installCodex, launchCodexLogin, loginCodexWithApiKey,
   isDockerInstalled, isDockerRunning, hasNvidiaGpu,
-  isFfmpegInstalled, isNodeVersionOk,
+  isFfmpegInstalled, isNodeVersionOk, isPythonInstalled, getPythonVersion,
   isPortInUse, findAvailablePort,
 } from '../lib/checks.js';
 
@@ -309,11 +309,39 @@ export async function init(options) {
     backendPort: config.backendPort,
     backendUrl: config.backendUrl,
     vitePort: config.vitePort,
+    backendDeploy: config.backendDeploy,
     uiServiceName: config.uiServiceName,
     backendServiceName: config.backendServiceName,
     installedAt: new Date().toISOString(),
   };
   fs.writeFileSync(path.join(installDir, '.noetix-state.json'), JSON.stringify(state, null, 2));
+
+  // =================================================================
+  // Auto-start services
+  // =================================================================
+
+  if (process.platform === 'linux' && config.uiServiceName) {
+    const startNow = await confirm({
+      message: 'Start services now?',
+      default: true,
+    });
+    if (startNow) {
+      try {
+        execSync('systemctl --user daemon-reload', { stdio: 'pipe' });
+        if (needsFrontend && config.uiServiceName) {
+          execSync(`systemctl --user enable --now ${config.uiServiceName}`, { stdio: 'pipe' });
+          console.log(chalk.green(`  ${config.uiServiceName} started`));
+        }
+        if (needsBackend && config.backendServiceName) {
+          execSync(`systemctl --user enable --now ${config.backendServiceName}`, { stdio: 'pipe' });
+          console.log(chalk.green(`  ${config.backendServiceName} started`));
+        }
+      } catch (err) {
+        console.log(chalk.yellow('  Failed to start services automatically'));
+        console.log(chalk.dim(`  Start manually: systemctl --user enable --now ${config.uiServiceName || ''} ${config.backendServiceName || ''}`));
+      }
+    }
+  }
 }
 
 // -----------------------------------------------------------------
@@ -351,17 +379,34 @@ async function checkCodex() {
   // Check login
   if (isCodexInstalled() && !isCodexLoggedIn()) {
     console.log(chalk.yellow('  Codex is not logged in.'));
-    const doLogin = await confirm({
-      message: 'Log in to Codex now? (opens browser)',
-      default: true,
+    const loginMethod = await select({
+      message: 'How would you like to authenticate Codex?',
+      choices: [
+        { name: 'Browser login (opens browser for OAuth)', value: 'browser' },
+        { name: 'API key (enter your OpenAI API key)', value: 'apikey' },
+        { name: 'Skip (configure later)', value: 'skip' },
+      ],
     });
-    if (doLogin) {
+    if (loginMethod === 'browser') {
       console.log(chalk.dim('  Opening browser for Codex authentication...'));
       launchCodexLogin();
       if (isCodexLoggedIn()) {
         console.log(chalk.green('  Codex login successful'));
       } else {
         console.log(chalk.yellow('  Codex login may not have completed. You can retry with: codex login'));
+      }
+    } else if (loginMethod === 'apikey') {
+      const apiKey = await password({
+        message: 'OpenAI API key',
+        mask: '*',
+      });
+      if (apiKey) {
+        loginCodexWithApiKey(apiKey);
+        if (isCodexLoggedIn()) {
+          console.log(chalk.green('  Codex login successful'));
+        } else {
+          console.log(chalk.yellow('  Codex login may not have completed. You can retry with: codex login --with-api-key'));
+        }
       }
     } else {
       console.log(chalk.dim('  Log in later: codex login'));
@@ -385,17 +430,20 @@ async function checkCodex() {
 async function checkBackendPrereqs() {
   console.log(chalk.dim('Checking backend prerequisites...'));
 
-  if (!isDockerInstalled()) {
-    console.log(chalk.red('  Docker is not installed.'));
-    console.log(chalk.dim('  Install from: https://docs.docker.com/get-docker/'));
-    console.log(chalk.dim('  For GPU support also install: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/'));
-    const proceed = await confirm({ message: 'Continue anyway? (backend will not work without Docker)', default: false });
-    if (!proceed) process.exit(1);
-  } else if (!isDockerRunning()) {
-    console.log(chalk.yellow('  Docker is installed but not running.'));
-    console.log(chalk.dim('  Start it with: sudo systemctl start docker'));
+  if (isPythonInstalled()) {
+    console.log(chalk.green(`  Python: ${getPythonVersion()}`));
   } else {
-    console.log(chalk.green('  Docker: running'));
+    console.log(chalk.yellow('  Python 3: not found (needed for native backend)'));
+  }
+
+  if (isDockerInstalled()) {
+    if (isDockerRunning()) {
+      console.log(chalk.green('  Docker: running'));
+    } else {
+      console.log(chalk.yellow('  Docker: installed but not running'));
+    }
+  } else {
+    console.log(chalk.dim('  Docker: not installed (needed for containerized backend)'));
   }
 
   if (hasNvidiaGpu()) {
@@ -404,10 +452,10 @@ async function checkBackendPrereqs() {
     console.log(chalk.yellow('  NVIDIA GPU: not detected — TTS/STT/OCR will use CPU (much slower)'));
   }
 
-  if (!isFfmpegInstalled()) {
-    console.log(chalk.yellow('  ffmpeg: not found on host (included in Docker image, but needed for local dev)'));
-  } else {
+  if (isFfmpegInstalled()) {
     console.log(chalk.green('  ffmpeg: installed'));
+  } else {
+    console.log(chalk.yellow('  ffmpeg: not found'));
   }
 
   console.log('');
@@ -442,14 +490,25 @@ async function installFrontend(installDir, config) {
     }
   }
 
-  // npm install
+  // npm install (include devDeps for vite build)
   const spinner2 = ora('Installing frontend dependencies').start();
   try {
-    execSync('npm install --production', { cwd: uiDir, stdio: 'pipe' });
+    execSync('npm install', { cwd: uiDir, stdio: 'pipe' });
     spinner2.succeed('Frontend dependencies installed');
   } catch (err) {
     spinner2.fail('Failed to install frontend dependencies');
     console.log(chalk.dim(`  Run manually: cd ${uiDir} && npm install`));
+    return;
+  }
+
+  // Build frontend (vite)
+  const buildSpinner = ora('Building frontend').start();
+  try {
+    execSync('npm run build', { cwd: uiDir, stdio: 'pipe' });
+    buildSpinner.succeed('Frontend built');
+  } catch (err) {
+    buildSpinner.fail('Frontend build failed');
+    console.log(chalk.dim(`  Run manually: cd ${uiDir} && npm run build`));
   }
 
   // Create data directory
@@ -468,12 +527,96 @@ async function installFrontend(installDir, config) {
 }
 
 // -----------------------------------------------------------------
-// Backend installation (Docker)
+// Backend installation
 // -----------------------------------------------------------------
 
 async function installBackend(installDir, config) {
-  // Write docker-compose.yml
-  const spinner = ora('Setting up backend').start();
+  const knowledgeDir = path.join(installDir, 'knowledge');
+
+  // Copy knowledge/ source from CLI package if not present
+  if (!fs.existsSync(path.join(knowledgeDir, 'server.py'))) {
+    const spinner = ora('Setting up backend source').start();
+    const cliKnowledgeDir = path.join(CLI_ROOT, 'knowledge');
+    if (fs.existsSync(cliKnowledgeDir)) {
+      fs.cpSync(cliKnowledgeDir, knowledgeDir, {
+        recursive: true,
+        filter: (src) => !src.includes('.venv') && !src.includes('__pycache__'),
+      });
+      spinner.succeed('Backend source files installed');
+    } else {
+      spinner.warn('Backend source not found in CLI package — skipping copy');
+    }
+  }
+
+  // Create data directories
+  for (const d of ['uploads', 'library', 'knowledge_bases', 'data']) {
+    fs.mkdirSync(path.join(knowledgeDir, d), { recursive: true });
+  }
+
+  // Choose deployment method
+  const deployMethod = await select({
+    message: 'Backend deployment method',
+    choices: [
+      { name: 'Native (Python venv — recommended for GPU servers)', value: 'native' },
+      { name: 'Docker (containerized with NVIDIA GPU support)', value: 'docker' },
+    ],
+  });
+
+  config.backendDeploy = deployMethod;
+
+  if (deployMethod === 'native') {
+    await installBackendNative(installDir, config, knowledgeDir);
+  } else {
+    await installBackendDocker(installDir, config);
+  }
+}
+
+async function installBackendNative(installDir, config, knowledgeDir) {
+  const venvDir = path.join(knowledgeDir, '.venv');
+
+  // Create venv
+  if (!fs.existsSync(venvDir)) {
+    const spinner = ora('Creating Python virtual environment').start();
+    try {
+      execSync(`python3 -m venv ${venvDir}`, { stdio: 'pipe', timeout: 30000 });
+      spinner.succeed('Python venv created');
+    } catch (err) {
+      spinner.fail('Failed to create venv');
+      console.log(chalk.dim(`  Run manually: python3 -m venv ${venvDir}`));
+      return;
+    }
+  }
+
+  // Upgrade pip
+  const pip = path.join(venvDir, 'bin', 'pip');
+  const spinner2 = ora('Upgrading pip').start();
+  try {
+    execSync(`${pip} install --upgrade pip`, { stdio: 'pipe', timeout: 60000 });
+    spinner2.succeed('pip upgraded');
+  } catch {
+    spinner2.warn('pip upgrade failed (continuing)');
+  }
+
+  // Install deps
+  const spinner3 = ora('Installing Python dependencies (this may take several minutes)').start();
+  try {
+    execSync(`${pip} install -e "."`, { cwd: knowledgeDir, stdio: 'pipe', timeout: 600000 });
+    spinner3.succeed('Python dependencies installed');
+  } catch (err) {
+    spinner3.fail('Failed to install Python dependencies');
+    console.log(chalk.dim(`  Run manually: cd ${knowledgeDir} && ${pip} install -e "."`));
+  }
+
+  // Copy .env.example if .env doesn't exist
+  const envExample = path.join(knowledgeDir, '.env.example');
+  const envFile = path.join(knowledgeDir, '.env');
+  if (fs.existsSync(envExample) && !fs.existsSync(envFile)) {
+    fs.copyFileSync(envExample, envFile);
+  }
+}
+
+async function installBackendDocker(installDir, config) {
+  const spinner = ora('Setting up Docker backend').start();
 
   const composeTemplate = readTemplate('docker-compose.yml');
   const compose = composeTemplate
@@ -481,36 +624,28 @@ async function installBackend(installDir, config) {
     .replace(/\$\{BACKEND_HOST:-0\.0\.0\.0\}/g, config.backendHost || '0.0.0.0');
   fs.writeFileSync(path.join(installDir, 'docker-compose.yml'), compose);
 
-  // Write Dockerfile if not present
   const dockerfileSrc = templatePath('Dockerfile.backend');
   const dockerfileDest = path.join(installDir, 'Dockerfile.backend');
   if (fs.existsSync(dockerfileSrc) && !fs.existsSync(dockerfileDest)) {
     fs.copyFileSync(dockerfileSrc, dockerfileDest);
   }
 
-  // Create backend data directories
-  const knowledgeDir = path.join(installDir, 'knowledge');
-  for (const d of ['uploads', 'library', 'knowledge_bases', 'data']) {
-    fs.mkdirSync(path.join(knowledgeDir, d), { recursive: true });
-  }
+  spinner.succeed('Docker configuration ready');
 
-  spinner.succeed('Backend configuration ready');
-
-  // Offer to build/pull the image now
   if (isDockerInstalled() && isDockerRunning()) {
     const buildNow = await confirm({
       message: 'Build backend Docker image now? (this may take several minutes)',
       default: false,
     });
     if (buildNow) {
-      const buildSpinner = ora('Building backend image (this takes a while on first run)').start();
+      const buildSpinner = ora('Building backend image').start();
       try {
         execSync(`docker compose -f ${path.join(installDir, 'docker-compose.yml')} build backend`, {
           cwd: installDir, stdio: 'pipe', timeout: 600000,
         });
         buildSpinner.succeed('Backend image built');
       } catch (err) {
-        buildSpinner.fail('Image build failed — you can retry with: docker compose build backend');
+        buildSpinner.fail('Image build failed — retry with: docker compose build backend');
       }
     } else {
       console.log(chalk.dim('  Build later: docker compose build backend'));
@@ -555,8 +690,29 @@ WantedBy=default.target
   }
 
   if (needsBackend) {
-    const composePath = path.join(installDir, 'docker-compose.yml');
-    const service = `[Unit]
+    let service;
+    if (config.backendDeploy === 'native') {
+      const venvBin = path.join(installDir, 'knowledge', '.venv', 'bin');
+      const beHost = config.backendHost || '0.0.0.0';
+      const bePort = config.backendPort || '8001';
+      service = `[Unit]
+Description=Noetix Knowledge Backend (${dirName})
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${path.join(installDir, 'knowledge')}
+ExecStart=${path.join(venvBin, 'uvicorn')} server:app --host ${beHost} --port ${bePort}
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONPATH=${path.join(installDir, 'knowledge')}
+
+[Install]
+WantedBy=default.target
+`;
+    } else {
+      const composePath = path.join(installDir, 'docker-compose.yml');
+      service = `[Unit]
 Description=Noetix Knowledge Backend (${dirName})
 After=network.target docker.service
 Requires=docker.service
@@ -572,6 +728,7 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 `;
+    }
     fs.writeFileSync(path.join(systemdDir, `${backendServiceName}.service`), service);
   }
 

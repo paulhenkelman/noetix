@@ -13,8 +13,17 @@
     "ui/vite.config.js",
     "ui/vitest.config.js",
     "ui/data/.gitkeep",
+    "knowledge/",
+    "!knowledge/.venv",
+    "!knowledge/knowledge_bases",
+    "!knowledge/library",
+    "!knowledge/uploads",
+    "!knowledge/data",
     "scripts/generate-codex-config.js",
-    "cli/templates/"
+    "cli/templates/",
+    "noetix.config",
+    "ui.config",
+    "knowledge.config"
   ],
   "scripts": {
     "test": "cd ui && npx vitest run"

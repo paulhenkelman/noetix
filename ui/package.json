@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node src/gateway/server.js",
     "dev:frontend": "vite",
+    "build": "vite build --outDir ../../dist",
     "test": "vitest run",
     "test:watch": "vitest"
   },

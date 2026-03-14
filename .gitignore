@@ -13,9 +13,11 @@ knowledge/data/
 ui/data/*.json
 !ui/data/.gitkeep
 
+# Build artifacts
+ui/dist/
+
 # Python packaging
 *.egg-info/
-dist/
 build/
 
 # Runtime state

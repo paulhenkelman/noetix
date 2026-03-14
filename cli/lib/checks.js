@@ -43,6 +43,13 @@ export function launchCodexLogin() {
   spawnSync('codex', ['login'], { stdio: 'inherit' });
 }
 
+export function loginCodexWithApiKey(apiKey) {
+  spawnSync('codex', ['login', '--with-api-key'], {
+    stdio: ['pipe', 'inherit', 'inherit'],
+    input: apiKey + '\n',
+  });
+}
+
 // --- Docker ---
 
 export function isDockerInstalled() {

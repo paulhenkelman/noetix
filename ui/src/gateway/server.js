@@ -1530,6 +1530,15 @@ app.get('/v1/audit/actions/export', async (req, res) => {
   }
 });
 
+// Serve built frontend (production)
+const DIST_DIR = path.resolve(__dirname, '..', '..', 'dist');
+if (fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
+  app.use(express.static(DIST_DIR));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+}
+
 app.listen(port, host, () =>
   console.log(
     `gateway listening on ${host}:${port} (remote: ${REMOTE_BASE}, socks: ${SOCKS_PROXY || 'disabled'})`
