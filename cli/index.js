@@ -18,6 +18,12 @@ program
   .description('Interactive setup — choose full, frontend-only, or backend-only installation')
   .option('-d, --dir <path>', 'Installation directory', '.')
   .option('-m, --mode <mode>', 'Installation mode: full, frontend, backend')
+  .option('-y, --yes', 'Accept all defaults (non-interactive)')
+  .option('--backend-url <url>', 'Backend URL (frontend-only mode)')
+  .option('--backend-deploy <method>', 'Backend deployment: native or docker', 'native')
+  .option('--gateway-port <port>', 'Gateway port')
+  .option('--backend-port <port>', 'Backend port')
+  .option('--vite-port <port>', 'Frontend dev port')
   .action(init);
 
 program

@@ -45,6 +45,8 @@ function safeReadJson(filePath) {
 }
 
 export async function init(options) {
+  const auto = !!options.yes;
+
   console.log('');
   console.log(chalk.bold('  Noetix Setup'));
   console.log(chalk.dim('  AI-powered knowledge platform'));
@@ -59,7 +61,7 @@ export async function init(options) {
     console.log(chalk.dim(`    Mode: ${existingState.mode} | Installed: ${existingState.installedAt || 'unknown'}`));
     console.log('');
 
-    const action = await select({
+    const action = auto ? 'update' : await select({
       message: 'What would you like to do?',
       choices: [
         { name: 'Update existing installation', value: 'update' },
@@ -74,14 +76,13 @@ export async function init(options) {
     }
 
     if (action === 'alternate') {
-      // Suggest next available directory name
       let suffix = 2;
       let altDir = `${installDir}-${suffix}`;
       while (fs.existsSync(altDir)) {
         suffix++;
         altDir = `${installDir}-${suffix}`;
       }
-      installDir = await input({
+      installDir = auto ? altDir : await input({
         message: 'Alternate installation directory',
         default: altDir,
       });
@@ -91,14 +92,14 @@ export async function init(options) {
   }
 
   // --- Mode selection ---
-  const mode = options.mode || await select({
+  const mode = options.mode || (auto ? 'full' : await select({
     message: 'Installation mode',
     choices: [
       { name: 'Full installation      — Frontend + Gateway + Backend (single machine)', value: 'full' },
       { name: 'Frontend only          — UI + Gateway (connects to remote backend)', value: 'frontend' },
       { name: 'Backend only           — Knowledge backend (GPU server)', value: 'backend' },
     ],
-  });
+  }));
 
   const needsFrontend = mode === 'full' || mode === 'frontend';
   const needsBackend = mode === 'full' || mode === 'backend';
@@ -113,7 +114,7 @@ export async function init(options) {
   // =================================================================
 
   if (needsFrontend) {
-    await checkCodex();
+    await checkCodex(auto);
   }
 
   if (needsBackend) {
@@ -127,41 +128,41 @@ export async function init(options) {
   const config = { mode };
 
   if (needsFrontend) {
-    const defaultGw = findAvailablePort(8788, 10);
-    if (defaultGw !== 8788) {
+    const defaultGw = findAvailablePort(Number(options.gatewayPort) || 8788, 10);
+    if (defaultGw !== 8788 && !options.gatewayPort) {
       console.log(chalk.yellow(`  Port 8788 is in use — suggesting ${defaultGw}`));
     }
-    config.gatewayPort = await input({ message: 'Gateway port', default: String(defaultGw) });
+    config.gatewayPort = options.gatewayPort || (auto ? String(defaultGw) : await input({ message: 'Gateway port', default: String(defaultGw) }));
 
-    const defaultVite = findAvailablePort(5174, 1);
-    if (defaultVite !== 5174) {
+    const defaultVite = findAvailablePort(Number(options.vitePort) || 5174, 1);
+    if (defaultVite !== 5174 && !options.vitePort) {
       console.log(chalk.yellow(`  Port 5174 is in use — suggesting ${defaultVite}`));
     }
-    config.vitePort = await input({ message: 'Frontend dev port', default: String(defaultVite) });
+    config.vitePort = options.vitePort || (auto ? String(defaultVite) : await input({ message: 'Frontend dev port', default: String(defaultVite) }));
   }
 
   if (mode === 'frontend') {
-    config.backendUrl = await input({
+    config.backendUrl = options.backendUrl || (auto ? 'http://10.0.0.50:8001' : await input({
       message: 'Backend URL (where the knowledge server is running)',
       default: 'http://10.0.0.50:8001',
-    });
+    }));
     if (!/^https?:\/\//.test(config.backendUrl)) {
       config.backendUrl = `http://${config.backendUrl}`;
     }
-    config.socksProxy = await input({
+    config.socksProxy = auto ? '' : await input({
       message: 'SOCKS proxy (leave empty if not needed)',
       default: '',
     });
   }
 
   if (needsBackend) {
-    const defaultBe = findAvailablePort(8001, 10);
-    if (defaultBe !== 8001) {
+    const defaultBe = findAvailablePort(Number(options.backendPort) || 8001, 10);
+    if (defaultBe !== 8001 && !options.backendPort) {
       console.log(chalk.yellow(`  Port 8001 is in use — suggesting ${defaultBe}`));
     }
-    config.backendPort = await input({ message: 'Backend port', default: String(defaultBe) });
-    config.backendHost = await input({ message: 'Backend listen host', default: '0.0.0.0' });
-    config.openaiKey = await password({
+    config.backendPort = options.backendPort || (auto ? String(defaultBe) : await input({ message: 'Backend port', default: String(defaultBe) }));
+    config.backendHost = auto ? '0.0.0.0' : await input({ message: 'Backend listen host', default: '0.0.0.0' });
+    config.openaiKey = auto ? '' : await password({
       message: 'OpenAI API key (or press Enter to configure later)',
       mask: '*',
     });
@@ -177,8 +178,10 @@ export async function init(options) {
   const conflicts = chosenPorts.filter(p => isPortInUse(Number(p)));
   if (conflicts.length > 0) {
     console.log(chalk.red(`  Warning: port(s) ${conflicts.join(', ')} are currently in use.`));
-    const proceed = await confirm({ message: 'Continue anyway?', default: false });
-    if (!proceed) process.exit(1);
+    if (!auto) {
+      const proceed = await confirm({ message: 'Continue anyway?', default: false });
+      if (!proceed) process.exit(1);
+    }
   }
 
   // =================================================================
@@ -237,7 +240,7 @@ export async function init(options) {
   // =================================================================
 
   if (needsBackend) {
-    await installBackend(installDir, config);
+    await installBackend(installDir, config, auto, options.backendDeploy);
   }
 
   // =================================================================
@@ -321,7 +324,7 @@ export async function init(options) {
   // =================================================================
 
   if (process.platform === 'linux' && config.uiServiceName) {
-    const startNow = await confirm({
+    const startNow = auto || await confirm({
       message: 'Start services now?',
       default: true,
     });
@@ -348,12 +351,12 @@ export async function init(options) {
 // Codex prerequisite check
 // -----------------------------------------------------------------
 
-async function checkCodex() {
+async function checkCodex(auto = false) {
   console.log(chalk.dim('Checking prerequisites...'));
 
   if (!isCodexInstalled()) {
     console.log(chalk.yellow('  Codex CLI is not installed.'));
-    const doInstall = await confirm({
+    const doInstall = auto || await confirm({
       message: 'Install Codex CLI now? (npm install -g @openai/codex)',
       default: true,
     });
@@ -366,8 +369,10 @@ async function checkCodex() {
         spinner.fail('Failed to install Codex CLI');
         console.log(chalk.red(`  Error: ${err.message}`));
         console.log(chalk.dim('  Install manually: npm install -g @openai/codex'));
-        const proceed = await confirm({ message: 'Continue without Codex?', default: false });
-        if (!proceed) process.exit(1);
+        if (!auto) {
+          const proceed = await confirm({ message: 'Continue without Codex?', default: false });
+          if (!proceed) process.exit(1);
+        }
       }
     } else {
       console.log(chalk.dim('  Skipping Codex install. Install later: npm install -g @openai/codex'));
@@ -378,6 +383,9 @@ async function checkCodex() {
 
   // Check login
   if (isCodexInstalled() && !isCodexLoggedIn()) {
+    if (auto) {
+      console.log(chalk.yellow('  Codex is not logged in. Run `codex login` to authenticate.'));
+    } else {
     console.log(chalk.yellow('  Codex is not logged in.'));
     const loginMethod = await select({
       message: 'How would you like to authenticate Codex?',
@@ -411,6 +419,7 @@ async function checkCodex() {
     } else {
       console.log(chalk.dim('  Log in later: codex login'));
     }
+    } // end else (not auto)
   } else if (isCodexInstalled()) {
     console.log(chalk.green('  Codex: logged in'));
   }
@@ -530,7 +539,7 @@ async function installFrontend(installDir, config) {
 // Backend installation
 // -----------------------------------------------------------------
 
-async function installBackend(installDir, config) {
+async function installBackend(installDir, config, auto = false, deployOption) {
   const knowledgeDir = path.join(installDir, 'knowledge');
 
   // Copy knowledge/ source from CLI package if not present
@@ -554,13 +563,13 @@ async function installBackend(installDir, config) {
   }
 
   // Choose deployment method
-  const deployMethod = await select({
+  const deployMethod = deployOption || (auto ? 'native' : await select({
     message: 'Backend deployment method',
     choices: [
       { name: 'Native (Python venv — recommended for GPU servers)', value: 'native' },
       { name: 'Docker (containerized with NVIDIA GPU support)', value: 'docker' },
     ],
-  });
+  }));
 
   config.backendDeploy = deployMethod;
 
@@ -633,7 +642,7 @@ async function installBackendDocker(installDir, config) {
   spinner.succeed('Docker configuration ready');
 
   if (isDockerInstalled() && isDockerRunning()) {
-    const buildNow = await confirm({
+    const buildNow = auto || await confirm({
       message: 'Build backend Docker image now? (this may take several minutes)',
       default: false,
     });
