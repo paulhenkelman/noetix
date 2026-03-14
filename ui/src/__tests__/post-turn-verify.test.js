@@ -11,7 +11,7 @@ import {
   selectBestResponse,
   isApologeticLoop,
   shouldResetConversation,
-} from '../gateway/verify.js';
+} from '../server/verify.js';
 
 // ---------------------------------------------------------------------------
 // detectFailureSignals

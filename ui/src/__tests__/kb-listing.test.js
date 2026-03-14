@@ -3,7 +3,7 @@ import http from 'http';
 import express from 'express';
 
 /**
- * Tests for the gateway's KB listing helper functions and pattern matching.
+ * Tests for the server's KB listing helper functions and pattern matching.
  * The listKbEntries() function is used by the backend API fallback path.
  */
 

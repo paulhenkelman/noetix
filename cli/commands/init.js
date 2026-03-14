@@ -95,8 +95,8 @@ export async function init(options) {
   const mode = options.mode || (auto ? 'full' : await select({
     message: 'Installation mode',
     choices: [
-      { name: 'Full installation      — Frontend + Gateway + Backend (single machine)', value: 'full' },
-      { name: 'Frontend only          — UI + Gateway (connects to remote backend)', value: 'frontend' },
+      { name: 'Full installation      — Noetix UI + Knowledge backend (single machine)', value: 'full' },
+      { name: 'Frontend only          — Noetix UI (connects to remote backend)', value: 'frontend' },
       { name: 'Backend only           — Knowledge backend (GPU server)', value: 'backend' },
     ],
   }));
@@ -128,11 +128,11 @@ export async function init(options) {
   const config = { mode };
 
   if (needsFrontend) {
-    const defaultGw = findAvailablePort(Number(options.gatewayPort) || 8788, 10);
-    if (defaultGw !== 8788 && !options.gatewayPort) {
+    const defaultGw = findAvailablePort(Number(options.port) || 8788, 10);
+    if (defaultGw !== 8788 && !options.port) {
       console.log(chalk.yellow(`  Port 8788 is in use — suggesting ${defaultGw}`));
     }
-    config.gatewayPort = options.gatewayPort || (auto ? String(defaultGw) : await input({ message: 'Gateway port', default: String(defaultGw) }));
+    config.uiPort = options.port || (auto ? String(defaultGw) : await input({ message: 'Noetix UI port', default: String(defaultGw) }));
 
     const defaultVite = findAvailablePort(Number(options.vitePort) || 5174, 1);
     if (defaultVite !== 5174 && !options.vitePort) {
@@ -174,7 +174,7 @@ export async function init(options) {
   }
 
   // Final port conflict warning for chosen ports
-  const chosenPorts = [config.gatewayPort, config.vitePort, config.backendPort].filter(Boolean);
+  const chosenPorts = [config.uiPort, config.vitePort, config.backendPort].filter(Boolean);
   const conflicts = chosenPorts.filter(p => isPortInUse(Number(p)));
   if (conflicts.length > 0) {
     console.log(chalk.red(`  Warning: port(s) ${conflicts.join(', ')} are currently in use.`));
@@ -200,9 +200,9 @@ export async function init(options) {
   // ui.config
   if (needsFrontend) {
     let uiConfig = readTemplate('ui.config');
-    uiConfig = uiConfig.replace(/^port = 8788$/m, `port = ${config.gatewayPort}`);
+    uiConfig = uiConfig.replace(/^port = 8788$/m, `port = ${config.uiPort}`);
     uiConfig = uiConfig.replace(/^vite_port = 5174$/m, `vite_port = ${config.vitePort}`);
-    uiConfig = uiConfig.replace(/^api_base = .*$/m, `api_base = "http://127.0.0.1:${config.gatewayPort}"`);
+    uiConfig = uiConfig.replace(/^api_base = .*$/m, `api_base = "http://127.0.0.1:${config.uiPort}"`);
     if (config.backendUrl) {
       uiConfig = uiConfig.replace(/^url = .*$/m, `url = "${config.backendUrl}"`);
     }
@@ -276,10 +276,10 @@ export async function init(options) {
   console.log('');
 
   if (needsFrontend) {
-    console.log(chalk.white('  Frontend/Gateway:'));
+    console.log(chalk.white('  Noetix UI:'));
     console.log(chalk.dim(`    Start:   noetix start frontend`));
     console.log(chalk.dim(`    Or:      cd ${installDir} && cd ui && npm run dev`));
-    console.log(chalk.dim(`    Gateway: http://127.0.0.1:${config.gatewayPort}`));
+    console.log(chalk.dim(`    URL:     http://127.0.0.1:${config.uiPort}`));
     console.log('');
   }
 
@@ -308,7 +308,7 @@ export async function init(options) {
   const state = {
     mode,
     installDir,
-    gatewayPort: config.gatewayPort,
+    uiPort: config.uiPort,
     backendPort: config.backendPort,
     backendUrl: config.backendUrl,
     vitePort: config.vitePort,
@@ -681,13 +681,13 @@ async function createSystemdServices(installDir, config) {
 
   if (needsFrontend) {
     const service = `[Unit]
-Description=Noetix UI Gateway (${dirName})
+Description=Noetix UI (${dirName})
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=${path.join(installDir, 'ui')}
-ExecStart=/usr/bin/node src/gateway/server.js
+ExecStart=/usr/bin/node src/server/server.js
 Restart=on-failure
 RestartSec=3
 Environment=NODE_ENV=production

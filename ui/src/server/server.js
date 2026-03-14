@@ -31,7 +31,7 @@ function readStoreFile(file) {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
-    console.warn(`[gateway] Failed to read ${file}: ${err.message}`);
+    console.warn(`[server] Failed to read ${file}: ${err.message}`);
     return [];
   }
 }
@@ -40,7 +40,7 @@ function writeStoreFile(file, value) {
   try {
     fs.writeFileSync(file, JSON.stringify(value, null, 2));
   } catch (err) {
-    console.error(`[gateway] Failed to write ${file}: ${err.message}`);
+    console.error(`[server] Failed to write ${file}: ${err.message}`);
   }
 }
 
@@ -80,7 +80,7 @@ function normalizePolicySnapshot(snapshot = {}, action = {}) {
     created_by:
       typeof snapshot.created_by === 'string' && snapshot.created_by.trim()
         ? snapshot.created_by.trim()
-        : 'gateway-local-policy',
+        : 'noetix-ui-local-policy',
     approval_required: snapshot.approval_required === false ? false : true,
     allowed_operations: [...new Set(allowedOpsRaw)],
     risk_level:
@@ -138,7 +138,7 @@ function buildRemoteCreateRequestFromLocal(body) {
   return {
     title: body?.title || `Library bulk ${op}`,
     description: '',
-    requested_by: 'local-gateway',
+    requested_by: 'noetix-ui',
     payload: {
       type: body?.type || 'library.bulk',
       targets,
@@ -252,7 +252,7 @@ const socksAgent = SOCKS_PROXY ? new SocksProxyAgent(SOCKS_PROXY) : null;
 // Initialize Codex app-server client
 const codex = new CodexClient();
 codex.init().catch((err) => {
-  console.error(`[gateway] Failed to start codex app-server: ${err.message}`);
+  console.error(`[server] Failed to start codex app-server: ${err.message}`);
 });
 
 /**
@@ -265,7 +265,7 @@ codex.init().catch((err) => {
 async function cleanupPlaywrightMcp() {
   try {
     execSync('kill $(lsof -t -i :8931) 2>/dev/null || true', { timeout: 5000 });
-    console.log('[gateway] Cleaned up orphaned Playwright MCP on port 8931');
+    console.log('[server] Cleaned up orphaned Playwright MCP on port 8931');
   } catch { /* nothing on that port — normal for stdio mode */ }
 }
 
@@ -336,7 +336,7 @@ async function listAllKbIds(req) {
 
 /**
  * Fetch all accessible KB entries with title + author metadata.
- * Tries /v1/knowledge-bases first (gateway self-call avoided; hits backend directly),
+ * Tries /v1/knowledge-bases first (self-call avoided; hits backend directly),
  * then falls back to /api/knowledge-bases, and finally per-KB document listings.
  * Returns { entries: [{ kb_id, title, author, document_count }], source: string }.
  */
@@ -357,7 +357,7 @@ async function listKbEntries(req, kbIds) {
       if (entries.length) return { entries, source: '/api/knowledge-bases' };
     }
   } catch (err) {
-    console.warn(`[gateway] listKbEntries: /api/knowledge-bases failed: ${err.message}`);
+    console.warn(`[server] listKbEntries: /api/knowledge-bases failed: ${err.message}`);
   }
 
   // Strategy 2: For each resolved KB, fetch document-level entries
@@ -377,7 +377,7 @@ async function listKbEntries(req, kbIds) {
         }
       }
     } catch (err) {
-      console.warn(`[gateway] listKbEntries: /api/knowledge-bases/${kbId}/documents failed: ${err.message}`);
+      console.warn(`[server] listKbEntries: /api/knowledge-bases/${kbId}/documents failed: ${err.message}`);
     }
   }
 
@@ -389,7 +389,7 @@ const KB_LISTING_PATTERN = /\b(list|show|what|which|all|every|title|author|docum
 
 /**
  * Detect whether an agent response is a "refusal" — the agent claims it cannot
- * fulfil the request rather than actually answering.  Used to trigger gateway-
+ * fulfil the request rather than actually answering.  Used to trigger server-
  * level fallbacks when the data is available locally.
  */
 const REFUSAL_PATTERN = /\b(I (can'?t|cannot|don'?t have|do not have|am unable to|lack|don'?t know how to)|not (available|accessible|possible|supported)|no (direct|way|access|ability)|outside (my|this)|beyond (my|this))\b/i;
@@ -774,11 +774,11 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
         assistantText = result.text || '';
         toolsWereUsed = result.otherEvents && result.otherEvents.length > 0;
         if (result.otherEvents?.length) {
-          console.log(`[gateway] Turn events (${result.otherEvents.length}): ${[...new Set(result.otherEvents)].join(', ')}`);
+          console.log(`[server] Turn events (${result.otherEvents.length}): ${[...new Set(result.otherEvents)].join(', ')}`);
         }
       } catch (err) {
         const errStr = typeof err.message === 'string' ? err.message : JSON.stringify(err.message ?? err);
-        console.error(`[gateway] sendTurn error:`, err.name, err.code, errStr, err.data ? JSON.stringify(err.data).slice(0, 500) : '');
+        console.error(`[server] sendTurn error:`, err.name, err.code, errStr, err.data ? JSON.stringify(err.data).slice(0, 500) : '');
         // Treat conversation-not-found, crashes, and server errors as recoverable
         const isRecoverable = errStr.includes('crashed')
           || errStr.includes('not running')
@@ -788,7 +788,7 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
         if (isRecoverable) {
           try {
             // Try restarting Playwright MCP in case it caused the crash
-            try { await cleanupPlaywrightMcp(); } catch (e) { console.warn(`[gateway] Playwright cleanup failed: ${e.message}`); }
+            try { await cleanupPlaywrightMcp(); } catch (e) { console.warn(`[server] Playwright cleanup failed: ${e.message}`); }
             const restarted = await codex.ensureReady();
             if (!restarted) throw new Error('Failed to restart codex app-server');
             // Create new conversation (old one is gone), preserving chat history as context
@@ -812,7 +812,7 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
       // --- Tool-usage check: detect fabrication (answered without calling any tools) ---
       const requestNeedsTools = REQUIRES_TOOL_USE.test(content);
       if (!toolsWereUsed && requestNeedsTools && assistantText.trim()) {
-        console.log(`[gateway] No tools used for request requiring tools — resetting conversation and retrying`);
+        console.log(`[server] No tools used for request requiring tools — resetting conversation and retrying`);
         try {
           await createFreshConversation();
           const forceToolContent = `${turnReminder}\n\n[CRITICAL: You MUST call browser tools to answer this question. Do NOT answer from memory — you do not know the course content. Call browser_navigate to open the page, then browser_snapshot to read it. Any answer without tool use is fabricated and wrong.]\n\n${content}`;
@@ -821,17 +821,17 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
           const retryUsedTools = retryResult.otherEvents && retryResult.otherEvents.length > 0;
           if (retryText.trim()) {
             if (retryUsedTools) {
-              console.log(`[gateway] Force-tool retry succeeded (${retryResult.otherEvents.length} events)`);
+              console.log(`[server] Force-tool retry succeeded (${retryResult.otherEvents.length} events)`);
               assistantText = retryText;
               toolsWereUsed = true;
             } else {
-              console.log(`[gateway] Force-tool retry also produced no tool events`);
+              console.log(`[server] Force-tool retry also produced no tool events`);
               // Keep the retry text only if it's longer (might still be better)
               if (retryText.length > assistantText.length) assistantText = retryText;
             }
           }
         } catch (err) {
-          console.error(`[gateway] Force-tool retry failed: ${err.message}`);
+          console.error(`[server] Force-tool retry failed: ${err.message}`);
         }
       }
 
@@ -856,11 +856,11 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
       for (let attempt = 0; attempt < MAX_VERIFY_ATTEMPTS; attempt++) {
         const signals = needsVerification(allResponses[allResponses.length - 1], content);
         if (!signals) {
-          console.log(`[gateway] Verification PASS (attempt ${attempt})`);
+          console.log(`[server] Verification PASS (attempt ${attempt})`);
           break;
         }
 
-        console.log(`[gateway] Verification FAIL (attempt ${attempt + 1}/${MAX_VERIFY_ATTEMPTS}): ${signals.join('; ') || 'high-risk request, short response'}`);
+        console.log(`[server] Verification FAIL (attempt ${attempt + 1}/${MAX_VERIFY_ATTEMPTS}): ${signals.join('; ') || 'high-risk request, short response'}`);
 
         try {
           const correctionResult = await codex.sendTurn(
@@ -874,7 +874,7 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
             allResponses.push(correctedText);
           }
         } catch (err) {
-          console.error(`[gateway] Verification turn failed: ${err.message}`);
+          console.error(`[server] Verification turn failed: ${err.message}`);
           break;
         }
       }
@@ -1541,6 +1541,6 @@ if (fs.existsSync(path.join(DIST_DIR, 'index.html'))) {
 
 app.listen(port, host, () =>
   console.log(
-    `gateway listening on ${host}:${port} (remote: ${REMOTE_BASE}, socks: ${SOCKS_PROXY || 'disabled'})`
+    `noetix-ui listening on ${host}:${port} (remote: ${REMOTE_BASE}, socks: ${SOCKS_PROXY || 'disabled'})`
   )
 );

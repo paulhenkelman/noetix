@@ -124,7 +124,7 @@ export function formatDiagnostics(detection) {
 }
 
 // ---------------------------------------------------------------------------
-// MCP JSON-RPC client — allows the gateway to call Playwright tools directly
+// MCP JSON-RPC client — allows the server to call Playwright tools directly
 // ---------------------------------------------------------------------------
 
 const MCP_CALL_TIMEOUT_MS = 30000;

@@ -25,7 +25,7 @@ vi.mock('child_process', () => ({
   spawn: vi.fn(() => createMockProc())
 }));
 
-const { CodexClient, CodexRpcError } = await import('../gateway/codex-client.js');
+const { CodexClient, CodexRpcError } = await import('../server/codex-client.js');
 
 /** Send a JSONL line to the mock proc's stdout as if the app-server wrote it. */
 function sendLine(proc, obj) {

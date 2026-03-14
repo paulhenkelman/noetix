@@ -454,7 +454,7 @@ def verify_neo4j() -> bool:
         return False
 
 
-# DEPRECATED: get_unified_agent() removed — browser+chat handled by gateway + Codex.
+# DEPRECATED: get_unified_agent() removed — browser+chat handled by noetix-ui + Codex.
 # The /api/chat endpoint now uses _basic_rag_chat directly (RAG-only, no browser).
 
 
@@ -4509,7 +4509,7 @@ async def chat_with_kb(request: ChatRequest) -> ChatResponse:
 
     Returns retrieved context chunks and a synthesized answer.
     Browser automation has been removed from this endpoint; it is now
-    handled by the gateway layer via Codex + Playwright MCP.
+    handled by the noetix-ui layer via Codex + Playwright MCP.
     """
     registry = get_kb_registry()
     kb = registry.get(request.kb_id)
@@ -4633,7 +4633,7 @@ Remember: Base your answers primarily on the provided context. If you need to ad
 # =========================================================================
 # These endpoints have been removed.
 # Browser traversal and extraction-agent orchestration are now handled
-# by the gateway layer via Codex + Playwright MCP.
+# by the noetix-ui layer via Codex + Playwright MCP.
 # All endpoints below return HTTP 410 Gone.
 # =========================================================================
 

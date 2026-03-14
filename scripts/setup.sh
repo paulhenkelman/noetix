@@ -17,8 +17,8 @@ echo ""
 
 # --- Installation mode selection ---
 echo -e "${CYAN}Select installation mode:${NC}"
-echo "  1) Full installation      — Frontend + Gateway + Backend (single machine)"
-echo "  2) Frontend only          — UI + Gateway (connects to remote backend)"
+echo "  1) Full installation      — Noetix UI + Knowledge backend (single machine)"
+echo "  2) Frontend only          — Noetix UI (connects to remote backend)"
 echo "  3) Backend only           — Knowledge backend + MCP server"
 echo ""
 read -rp "Enter choice [1/2/3]: " INSTALL_MODE
@@ -74,7 +74,7 @@ if [ "$MODE" = "full" ]; then
   read -rp "Backend host IP for remote access (default: 0.0.0.0): " BACKEND_HOST
   BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 
-  read -rp "Gateway port (default: 8788): " GW_PORT
+  read -rp "Noetix UI port (default: 8788): " GW_PORT
   GW_PORT="${GW_PORT:-8788}"
 
   read -rp "Backend port (default: 8001): " BE_PORT
@@ -92,7 +92,7 @@ if [ "$MODE" = "full" ]; then
   BACKEND_URL="http://127.0.0.1:${BE_PORT}"
   sed -i "s|^url = .*|url = \"${BACKEND_URL}\"|" "$PROJECT_ROOT/ui.config"
 
-  # Update frontend api_base to match gateway port
+  # Update frontend api_base to match server port
   sed -i "s|^api_base = .*|api_base = \"http://127.0.0.1:${GW_PORT}\"|" "$PROJECT_ROOT/ui.config"
   # Update CORS origins
   sed -i "s|localhost:5174|localhost:${FE_PORT}|g" "$PROJECT_ROOT/ui.config"
@@ -117,7 +117,7 @@ if [ "$MODE" = "backend" ]; then
 fi
 
 # ============================================================
-# Install Frontend + Gateway
+# Install Noetix UI
 # ============================================================
 if [ "$MODE" = "full" ] || [ "$MODE" = "frontend" ]; then
   echo -e "${BOLD}--- Installing UI dependencies ---${NC}"
@@ -142,19 +142,19 @@ if [ "$MODE" = "full" ] || [ "$MODE" = "frontend" ]; then
   echo "Created $PLAYWRIGHT_DIR"
   echo ""
 
-  # Systemd service for gateway
+  # Systemd service for noetix-ui
   SYSTEMD_DIR="${HOME}/.config/systemd/user"
   mkdir -p "$SYSTEMD_DIR"
 
   cat > "$SYSTEMD_DIR/noetix-ui.service" <<EOF
 [Unit]
-Description=Noetix UI Gateway
+Description=Noetix UI
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=$PROJECT_ROOT/ui
-ExecStart=/usr/bin/node src/gateway/server.js
+ExecStart=/usr/bin/node src/server/server.js
 Restart=on-failure
 RestartSec=3
 Environment=NODE_ENV=production
@@ -226,8 +226,8 @@ echo -e "${BOLD}=== Setup complete ===${NC}"
 echo ""
 
 if [ "$MODE" = "full" ] || [ "$MODE" = "frontend" ]; then
-  echo -e "${GREEN}Frontend/Gateway:${NC}"
-  echo "  Start gateway:   cd ui && npm run dev"
+  echo -e "${GREEN}Noetix UI:${NC}"
+  echo "  Start server:    cd ui && npm run dev"
   echo "  Start frontend:  cd ui && npm run dev:frontend"
   echo "  Systemd:         systemctl --user enable --now noetix-ui.service"
   echo ""

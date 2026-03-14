@@ -36,7 +36,7 @@ export async function stop(service) {
   const hasBackend = mode === 'full' || mode === 'backend';
 
   if (stopFrontend && hasFrontend) {
-    await stopGateway(installDir, state);
+    await stopServer(installDir, state);
   }
 
   if (stopBackend && hasBackend) {
@@ -44,36 +44,36 @@ export async function stop(service) {
   }
 }
 
-async function stopGateway(installDir, state) {
+async function stopServer(installDir, state) {
   // Try systemd first
   const uiService = state?.uiServiceName || 'noetix-ui';
   try {
     const svcStatus = execSync(`systemctl --user is-active ${uiService} 2>/dev/null`, { encoding: 'utf-8' }).trim();
     if (svcStatus === 'active') {
-      const spinner = ora(`Stopping gateway (systemd: ${uiService})`).start();
+      const spinner = ora(`Stopping noetix-ui (systemd: ${uiService})`).start();
       execSync(`systemctl --user stop ${uiService}`, { stdio: 'pipe' });
-      spinner.succeed('Gateway stopped');
+      spinner.succeed('Noetix UI stopped');
       return;
     }
   } catch { /* not systemd managed */ }
 
   // Try PID file
-  const pidFile = path.join(installDir, '.noetix-gateway.pid');
+  const pidFile = path.join(installDir, '.noetix-ui.pid');
   if (fs.existsSync(pidFile)) {
     const pid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10);
-    const spinner = ora('Stopping gateway').start();
+    const spinner = ora('Stopping noetix-ui').start();
     try {
       process.kill(pid, 'SIGTERM');
       // Wait briefly for graceful shutdown
       await new Promise(resolve => setTimeout(resolve, 1000));
       try { process.kill(pid, 0); process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-      spinner.succeed('Gateway stopped');
+      spinner.succeed('Noetix UI stopped');
     } catch {
-      spinner.info('Gateway was not running');
+      spinner.info('Noetix UI was not running');
     }
     fs.unlinkSync(pidFile);
   } else {
-    console.log(chalk.dim('  Gateway: no PID file found (not running or managed externally)'));
+    console.log(chalk.dim('  Noetix UI: no PID file found (not running or managed externally)'));
   }
 }
 

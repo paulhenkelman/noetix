@@ -38,7 +38,7 @@ export async function start(service) {
   const hasBackend = mode === 'full' || mode === 'backend';
 
   if (startFrontend && hasFrontend) {
-    await startGateway(installDir, state);
+    await startServer(installDir, state);
   }
 
   if (startBackend && hasBackend) {
@@ -53,12 +53,12 @@ export async function start(service) {
   }
 }
 
-async function startGateway(installDir, state) {
+async function startServer(installDir, state) {
   const uiDir = path.join(installDir, 'ui');
-  const serverPath = path.join(uiDir, 'src', 'gateway', 'server.js');
+  const serverPath = path.join(uiDir, 'src', 'server', 'server.js');
 
   if (!fs.existsSync(serverPath)) {
-    console.log(chalk.red(`Gateway not found at ${serverPath}`));
+    console.log(chalk.red(`Noetix UI server not found at ${serverPath}`));
     return;
   }
 
@@ -67,14 +67,14 @@ async function startGateway(installDir, state) {
   try {
     const svcStatus = execSync(`systemctl --user is-active ${uiService} 2>/dev/null`, { encoding: 'utf-8' }).trim();
     if (svcStatus === 'active') {
-      console.log(chalk.green(`Gateway already running (systemd: ${uiService})`));
+      console.log(chalk.green(`Noetix UI already running (systemd: ${uiService})`));
       return;
     }
   } catch { /* not managed by systemd, start manually */ }
 
-  const spinner = ora('Starting gateway').start();
+  const spinner = ora('Starting noetix-ui').start();
 
-  const child = spawn('node', ['src/gateway/server.js'], {
+  const child = spawn('node', ['src/server/server.js'], {
     cwd: uiDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
@@ -82,7 +82,7 @@ async function startGateway(installDir, state) {
   });
 
   // Write PID for stop command
-  const pidFile = path.join(installDir, '.noetix-gateway.pid');
+  const pidFile = path.join(installDir, '.noetix-ui.pid');
   fs.writeFileSync(pidFile, String(child.pid));
   child.unref();
 
@@ -92,9 +92,9 @@ async function startGateway(installDir, state) {
   // Check if it's still running
   try {
     process.kill(child.pid, 0);
-    spinner.succeed(`Gateway started on port ${state.gatewayPort || 8788} (PID: ${child.pid})`);
+    spinner.succeed(`Noetix UI started on port ${state.uiPort || 8788} (PID: ${child.pid})`);
   } catch {
-    spinner.fail('Gateway failed to start — check logs');
+    spinner.fail('Noetix UI failed to start — check logs');
     // Show stderr if available
     child.stderr.on('data', d => console.log(chalk.dim(d.toString())));
   }

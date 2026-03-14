@@ -76,7 +76,7 @@ export class CodexClient {
     // Send initialize handshake
     try {
       await this._request('initialize', {
-        clientInfo: { name: 'noetix-gateway', title: 'Noetix Gateway', version: '1.0.0' }
+        clientInfo: { name: 'noetix-ui', title: 'Noetix UI', version: '1.0.0' }
       });
       this._initialized = true;
       console.log('[codex-client] app-server initialized');
