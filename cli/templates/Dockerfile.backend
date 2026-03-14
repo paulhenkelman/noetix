@@ -1,0 +1,46 @@
+# Noetix Knowledge Backend
+# Multi-stage build: CUDA base + Python deps + ffmpeg + application
+
+# Stage 1: Python dependencies
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS deps
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-venv python3-pip \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.11 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY knowledge/pyproject.toml /build/pyproject.toml
+WORKDIR /build
+RUN pip install --no-cache-dir .
+
+# Stage 2: Application
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-venv \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=deps /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy application code
+COPY knowledge/ /app/
+COPY knowledge.config /app/knowledge.config
+
+# Create data directories
+RUN mkdir -p /app/knowledge_bases /app/library /app/uploads /app/data
+
+EXPOSE 8001
+
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]

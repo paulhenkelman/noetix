@@ -1,0 +1,32 @@
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Data directories (populated at runtime)
+knowledge/knowledge_bases/
+knowledge/library/
+knowledge/uploads/
+knowledge/data/
+ui/data/*.json
+!ui/data/.gitkeep
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# Runtime state
+*.log
+*.pid
+.noetix-state.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Playwright cache
+.cache/

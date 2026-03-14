@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Noetix</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #10b981;
+            --bg: #0f172a;
+            --bg-card: #1e293b;
+            --bg-hover: #334155;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1rem;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+            background: var(--bg-hover);
+        }
+
+        .tab-btn.active {
+            color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Upload Section */
+        .upload-zone {
+            border: 2px dashed var(--border);
+            border-radius: 1rem;
+            padding: 3rem;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+            background: var(--bg-card);
+        }
+
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .upload-zone svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            color: var(--text-muted);
+        }
+
+        .upload-zone h3 {
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-zone p {
+            color: var(--text-muted);
+        }
+
+        .upload-form {
+            display: none;
+            background: var(--bg-card);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-top: 1rem;
+        }
+
+        .upload-form.visible {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .voice-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .voice-option {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .voice-option:hover {
+            background: var(--bg-hover);
+        }
+
+        .voice-option.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .voice-option input {
+            display: none;
+        }
+
+        .voice-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+
+        .voice-icon.female { background: #fce7f3; }
+        .voice-icon.male { background: #dbeafe; }
+
+        .voice-info {
+            flex: 1;
+        }
+
+        .voice-name {
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+
+        .voice-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .recommended-badge {
+            font-size: 0.7rem;
+            background: var(--secondary);
+            color: white;
+            padding: 0.15rem 0.4rem;
+            border-radius: 0.25rem;
+            margin-left: 0.5rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--bg-hover);
+            color: var(--text);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .file-preview {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .file-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--danger);
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: 500;
+        }
+
+        .file-size {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Progress Section */
+        .progress-card {
+            background: var(--bg-card);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-top: 2rem;
+            display: none;
+        }
+
+        .progress-card.visible {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .progress-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .progress-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--secondary);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .progress-bar-container {
+            background: var(--bg);
+            border-radius: 0.5rem;
+            height: 12px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--secondary));
+            border-radius: 0.5rem;
+            transition: width 0.5s ease;
+        }
+
+        .progress-details {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .completion-card {
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .completion-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(16, 185, 129, 0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+        }
+
+        .completion-icon svg {
+            width: 40px;
+            height: 40px;
+            color: var(--secondary);
+        }
+
+        .completion-stats {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin: 1.5rem 0;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        /* Library Section */
+        /* Library Filters */
+        .library-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            margin-bottom: 1.5rem;
+            align-items: flex-end;
+        }
+
+        .library-filters .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            min-width: 150px;
+        }
+
+        .library-filters label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .library-filters select {
+            padding: 0.5rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text);
+            font-size: 0.875rem;
+        }
+
+        /* Library Item Tags */
+        .library-item-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+            margin-top: 0.5rem;
+        }
+
+        .library-tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.125rem 0.5rem;
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--primary);
+            border-radius: 1rem;
+            font-size: 0.7rem;
+        }
+
+        .library-tag.org {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--secondary);
+        }
+
+        .library-tag.course {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+        }
+
+        .library-tag.kb {
+            background: rgba(139, 92, 246, 0.15);
+            color: #8b5cf6;
+        }
+
+        /* Book Tags (in library cards) */
+        .book-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+            margin-top: 0.375rem;
+            margin-bottom: 0.375rem;
+        }
+
+        .tag-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.125rem 0.5rem;
+            border-radius: 1rem;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .tag-pill.org {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--secondary);
+        }
+
+        .tag-pill.course {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+        }
+
+        .tag-pill.custom {
+            background: rgba(99, 102, 241, 0.15);
+            color: var(--primary);
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.hidden {
+            display: none;
+        }
+
+        .modal-content {
+            background: var(--bg-card);
+            border-radius: 1rem;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .modal-header h3 {
+            margin: 0;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-body h4 {
+            margin: 1.5rem 0 0.75rem 0;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .modal-body h4:first-child {
+            margin-top: 0;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.375rem;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.625rem 0.875rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .form-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .library-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .library-card {
+            background: var(--bg-card);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .library-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .library-card-header {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .book-cover {
+            width: 60px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .book-cover svg {
+            width: 32px;
+            height: 32px;
+            color: white;
+        }
+
+        .book-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .book-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .book-author {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .book-meta {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .book-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .library-card-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .library-card-actions .btn {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .output-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .output-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .output-badge.m4b {
+            background: rgba(139, 92, 246, 0.2);
+            color: #a78bfa;
+        }
+
+        .output-badge.m4b:hover {
+            background: rgba(139, 92, 246, 0.4);
+        }
+
+        .output-badge.pdf {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+        }
+
+        .output-badge.pdf:hover {
+            background: rgba(239, 68, 68, 0.4);
+        }
+
+        .output-badge.kb {
+            background: rgba(34, 197, 94, 0.2);
+            color: #4ade80;
+        }
+
+        .output-badge-wrapper {
+            display: inline-flex;
+            align-items: center;
+            position: relative;
+        }
+
+        .output-badge-delete {
+            display: none;
+            width: 16px;
+            height: 16px;
+            padding: 0;
+            margin-left: 2px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(239, 68, 68, 0.8);
+            color: white;
+            font-size: 10px;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+
+        .output-badge-wrapper:hover .output-badge-delete {
+            display: inline-flex;
+        }
+
+        .output-badge-delete:hover {
+            background: var(--danger);
+        }
+
+        .output-badge.use-input {
+            background: rgba(99, 102, 241, 0.2);
+            color: #a5b4fc;
+        }
+
+        .output-badge.use-input:hover {
+            background: rgba(99, 102, 241, 0.4);
+        }
+
+        .empty-library {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-muted);
+        }
+
+        .empty-library svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            header h1 {
+                font-size: 1.75rem;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .voice-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .library-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .completion-stats {
+                flex-direction: column;
+                gap: 1rem;
+            }
+        }
+
+        /* Loading spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--text-muted);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Noetix</h1>
+            <p>Transform PDFs and audio into audiobooks, searchable documents, and knowledge bases</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="convert">Input</button>
+            <button class="tab-btn" data-tab="library">Library <span id="library-count"></span></button>
+        </div>
+
+        <!-- Convert Tab -->
+        <div id="convert-tab" class="tab-content active">
+            <div id="upload-zone" class="upload-zone">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <h3>Drop your file(s) here</h3>
+                <p>PDF, audio, video, or ZIP archive of videos</p>
+                <input type="file" id="file-input" accept=".pdf,.m4b,.mp3,.aac,.m4a,.mp4,.mkv,.webm,.avi,.mov,.m4v,.zip" multiple hidden>
+            </div>
+
+            <div id="upload-form" class="upload-form">
+                <!-- Stage 1: File Selection -->
+                <div id="files-stage">
+                    <div id="files-preview">
+                        <!-- File previews will be populated by JS -->
+                    </div>
+                    <button id="continue-btn" class="btn btn-primary" style="width: 100%; margin-top: 1rem;">
+                        Continue to Options
+                    </button>
+                </div>
+
+                <!-- Stage 2: Options (hidden until Continue is clicked) -->
+                <div id="options-stage" style="display: none;">
+                    <div id="selected-files-summary" style="background: var(--bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1.5rem;">
+                        <!-- Will show summary of selected files -->
+                    </div>
+
+                    <div class="ai-detection-notice" style="background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary); border-radius: 0.5rem; padding: 1rem; margin-bottom: 1.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="var(--primary)">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        <strong style="color: var(--primary);">AI-Powered Analysis</strong>
+                    </div>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin: 0;">
+                        Title, author, and chapter structure will be automatically detected by AI.
+                        For multiple PDFs, AI will determine the correct order and combine them into one book.
+                        Override below only if needed.
+                    </p>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="title">Title Override</label>
+                        <input type="text" id="title" placeholder="Leave blank for AI detection">
+                    </div>
+                    <div class="form-group">
+                        <label for="author">Author Override</label>
+                        <input type="text" id="author" placeholder="Leave blank for AI detection">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Select Outputs</label>
+                    <div class="output-options" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem;">
+                        <label class="output-option" style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="output-m4b" value="m4b" checked style="margin-top: 0.25rem;">
+                            <div>
+                                <div style="font-weight: 500;">M4B Audiobook</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">High-quality audiobook with chapter markers</div>
+                            </div>
+                        </label>
+                        <label class="output-option" style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="output-searchable" value="searchable_pdf" style="margin-top: 0.25rem;">
+                            <div>
+                                <div style="font-weight: 500;">Searchable PDF</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">Adds text layer to scanned PDFs for copy/search</div>
+                            </div>
+                        </label>
+                        <label class="output-option" id="combined-pdf-option" style="display: none; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="output-combined" value="combined_pdf" style="margin-top: 0.25rem;">
+                            <div>
+                                <div style="font-weight: 500;">Combined PDF</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">Merge all uploaded PDFs into a single file</div>
+                            </div>
+                        </label>
+                        <label class="output-option" style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem; border: 1px solid var(--border); border-radius: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="output-kb" value="knowledge_base" style="margin-top: 0.25rem;">
+                            <div>
+                                <div style="font-weight: 500;">Knowledge Base</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">Add to searchable knowledge base for AI agents</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Knowledge Base Selection -->
+                <div class="form-group" id="kb-section" style="display: none;">
+                    <label>Select Knowledge Base</label>
+                    <select id="kb-select" style="width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--bg); color: var(--text); font-size: 1rem;">
+                        <option value="">Loading knowledge bases...</option>
+                    </select>
+                    <div id="new-kb-form" style="display: none; margin-top: 1rem; padding: 1rem; border: 1px solid var(--border); border-radius: 0.5rem;">
+                        <div class="form-group" style="margin-bottom: 0.75rem;">
+                            <label style="font-size: 0.9rem;">New Knowledge Base Name</label>
+                            <input type="text" id="new-kb-name" placeholder="e.g., AI Research Papers" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--bg); color: var(--text);">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label style="font-size: 0.9rem;">Description (optional)</label>
+                            <input type="text" id="new-kb-desc" placeholder="Brief description of this knowledge base" style="width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--bg); color: var(--text);">
+                        </div>
+                    </div>
+                </div>
+
+                    <div class="form-group" id="voice-section">
+                        <label>Select Voice <span style="color: var(--text-muted); font-size: 0.85rem;">(for M4B)</span></label>
+                        <div class="voice-grid" id="voice-grid">
+                            <!-- Voices will be populated by JS -->
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" id="start-btn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Start Conversion
+                    </button>
+                </div>
+            </div>
+
+            <div id="progress-card" class="progress-card">
+                <div id="progress-content">
+                    <div class="progress-header">
+                        <div class="progress-title" id="progress-title">Converting...</div>
+                        <div class="progress-status">
+                            <div class="status-dot"></div>
+                            <span id="progress-status-text">Processing</span>
+                        </div>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-details">
+                        <span id="progress-task">Initializing...</span>
+                        <span id="progress-percent">0%</span>
+                    </div>
+                </div>
+
+                <div id="completion-content" class="completion-card hidden">
+                    <div class="completion-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <h2>Conversion Complete!</h2>
+                    <p style="color: var(--text-muted);">Your audiobook is ready to download</p>
+                    <div class="completion-stats">
+                        <div class="stat">
+                            <div class="stat-value" id="stat-duration">--</div>
+                            <div class="stat-label">Duration</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value" id="stat-size">--</div>
+                            <div class="stat-label">File Size</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-value" id="stat-chapters">--</div>
+                            <div class="stat-label">Chapters</div>
+                        </div>
+                    </div>
+                    <div id="download-buttons" style="display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; margin-top: 1.5rem;">
+                        <!-- Download buttons will be populated by JS based on available outputs -->
+                    </div>
+                    <div style="margin-top: 1rem; text-align: center;">
+                        <button class="btn btn-secondary" id="new-conversion-btn">Convert Another</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Library Tab -->
+        <div id="library-tab" class="tab-content">
+            <!-- Filter Bar -->
+            <div id="library-filters" class="library-filters">
+                <div class="filter-group">
+                    <label for="filter-organization">Organization</label>
+                    <select id="filter-organization" onchange="applyLibraryFilters()">
+                        <option value="">All Organizations</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-course">Course</label>
+                    <select id="filter-course" onchange="applyLibraryFilters()">
+                        <option value="">All Courses</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-tag">Tag</label>
+                    <select id="filter-tag" onchange="applyLibraryFilters()">
+                        <option value="">All Tags</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="filter-kb">KB Status</label>
+                    <select id="filter-kb" onchange="applyLibraryFilters()">
+                        <option value="">All Items</option>
+                        <option value="true">Has KB</option>
+                        <option value="false">No KB</option>
+                    </select>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="clearLibraryFilters()">Clear Filters</button>
+            </div>
+
+            <div id="library-grid" class="library-grid">
+                <!-- Library items will be populated by JS -->
+            </div>
+            <div id="empty-library" class="empty-library hidden">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+                <h3>Your library is empty</h3>
+                <p>Convert a PDF to get started</p>
+            </div>
+        </div>
+
+        <!-- Library Item Edit Modal -->
+        <div id="library-edit-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Edit Library Item</h3>
+                    <button class="modal-close" onclick="closeLibraryEditModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="edit-item-id">
+
+                    <h4>Metadata</h4>
+                    <div class="form-group">
+                        <label for="edit-title">Title</label>
+                        <input type="text" id="edit-title" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-author">Author</label>
+                        <input type="text" id="edit-author" class="form-input">
+                    </div>
+
+                    <h4>Organization</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="edit-organization">Organization</label>
+                            <input type="text" id="edit-organization" class="form-input" placeholder="e.g., Georgia Tech">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-course-code">Course Code</label>
+                            <input type="text" id="edit-course-code" class="form-input" placeholder="e.g., CS7637">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit-custom-tags">Custom Tags (comma-separated)</label>
+                        <input type="text" id="edit-custom-tags" class="form-input" placeholder="e.g., midterm, lecture, important">
+                    </div>
+
+                    <div class="form-group" id="edit-kb-info" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="edit-sync-kb" checked>
+                            Sync changes to Knowledge Base
+                        </label>
+                        <p class="form-hint">Updates the course structure in the associated knowledge base.</p>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeLibraryEditModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveLibraryItem()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // State
+        let selectedFiles = [];
+        let selectedVoice = 'af_heart';
+        let selectedOutputs = ['m4b'];
+        let selectedKbId = null;
+        let knowledgeBases = [];
+        let currentJobId = null;
+        let pollInterval = null;
+
+        // DOM Elements
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+        const uploadForm = document.getElementById('upload-form');
+        const filesPreview = document.getElementById('files-preview');
+        const voiceGrid = document.getElementById('voice-grid');
+        const startBtn = document.getElementById('start-btn');
+        const progressCard = document.getElementById('progress-card');
+        const progressContent = document.getElementById('progress-content');
+        const completionContent = document.getElementById('completion-content');
+        const progressBar = document.getElementById('progress-bar');
+        const progressTask = document.getElementById('progress-task');
+        const progressPercent = document.getElementById('progress-percent');
+        const progressTitle = document.getElementById('progress-title');
+        const libraryGrid = document.getElementById('library-grid');
+        const emptyLibrary = document.getElementById('empty-library');
+        const libraryCount = document.getElementById('library-count');
+
+        // =========================================================================
+        // Library Filter & Edit Functions
+        // =========================================================================
+
+        async function loadLibraryFilters() {
+            try {
+                const response = await fetch('/api/library/filters');
+                if (!response.ok) return;
+
+                const filters = await response.json();
+
+                // Populate organization dropdown
+                const orgSelect = document.getElementById('filter-organization');
+                if (orgSelect && filters.organizations) {
+                    orgSelect.innerHTML = '<option value="">All Organizations</option>' +
+                        filters.organizations.map(org => `<option value="${escapeHtml(org)}">${escapeHtml(org)}</option>`).join('');
+                }
+
+                // Populate course dropdown
+                const courseSelect = document.getElementById('filter-course');
+                if (courseSelect && filters.course_codes) {
+                    courseSelect.innerHTML = '<option value="">All Courses</option>' +
+                        filters.course_codes.map(code => `<option value="${escapeHtml(code)}">${escapeHtml(code)}</option>`).join('');
+                }
+
+                // Populate tag dropdown
+                const tagSelect = document.getElementById('filter-tag');
+                if (tagSelect && filters.custom_tags) {
+                    tagSelect.innerHTML = '<option value="">All Tags</option>' +
+                        filters.custom_tags.map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load library filters:', error);
+            }
+        }
+
+        function applyLibraryFilters() {
+            loadLibrary();
+        }
+
+        function clearLibraryFilters() {
+            document.getElementById('filter-organization').value = '';
+            document.getElementById('filter-course').value = '';
+            document.getElementById('filter-tag').value = '';
+            document.getElementById('filter-kb').value = '';
+            loadLibrary();
+        }
+
+        // Store current item being edited
+        let editingLibraryItem = null;
+
+        async function openLibraryEditModal(itemId) {
+            try {
+                const response = await fetch(`/api/library/${itemId}`);
+                if (!response.ok) {
+                    throw new Error('Failed to load item');
+                }
+
+                const item = await response.json();
+                editingLibraryItem = item;
+
+                // Populate form fields
+                document.getElementById('edit-item-id').value = item.id;
+                document.getElementById('edit-title').value = item.title || '';
+                document.getElementById('edit-author').value = item.author || '';
+
+                // Populate tag fields
+                const tags = item.tags || {};
+                document.getElementById('edit-organization').value = tags.organization || '';
+                document.getElementById('edit-course-code').value = tags.course_code || '';
+                document.getElementById('edit-custom-tags').value = (tags.custom_tags || []).join(', ');
+
+                // Show/hide KB sync option
+                const hasKb = item.output_files?.knowledge_base || item.kb_id;
+                const kbInfo = document.getElementById('edit-kb-info');
+                if (hasKb) {
+                    kbInfo.style.display = 'block';
+                    document.getElementById('edit-sync-kb').checked = true;
+                } else {
+                    kbInfo.style.display = 'none';
+                }
+
+                // Show modal
+                document.getElementById('library-edit-modal').classList.remove('hidden');
+            } catch (error) {
+                console.error('Failed to open edit modal:', error);
+                alert('Failed to load item details');
+            }
+        }
+
+        function closeLibraryEditModal() {
+            document.getElementById('library-edit-modal').classList.add('hidden');
+            editingLibraryItem = null;
+        }
+
+        async function saveLibraryItem() {
+            const itemId = document.getElementById('edit-item-id').value;
+            if (!itemId) return;
+
+            const saveBtn = document.querySelector('#library-edit-modal .btn-primary');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="loading"></span> Saving...';
+
+            try {
+                // Update metadata
+                const metadataResponse = await fetch(`/api/library/${itemId}/metadata`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: document.getElementById('edit-title').value.trim() || null,
+                        author: document.getElementById('edit-author').value.trim() || null
+                    })
+                });
+
+                if (!metadataResponse.ok) {
+                    const error = await metadataResponse.json();
+                    throw new Error(error.detail || 'Failed to update metadata');
+                }
+
+                // Update tags
+                const customTagsInput = document.getElementById('edit-custom-tags').value;
+                const customTags = customTagsInput
+                    ? customTagsInput.split(',').map(t => t.trim()).filter(t => t)
+                    : [];
+
+                const syncKb = document.getElementById('edit-sync-kb').checked;
+
+                const tagsResponse = await fetch(`/api/library/${itemId}/tags`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        organization: document.getElementById('edit-organization').value.trim() || null,
+                        course_code: document.getElementById('edit-course-code').value.trim() || null,
+                        custom_tags: customTags.length > 0 ? customTags : null,
+                        sync_to_kb: syncKb
+                    })
+                });
+
+                if (!tagsResponse.ok) {
+                    const error = await tagsResponse.json();
+                    throw new Error(error.detail || 'Failed to update tags');
+                }
+
+                // Close modal and reload library
+                closeLibraryEditModal();
+                loadLibrary();
+                loadLibraryFilters(); // Refresh filter options
+
+            } catch (error) {
+                console.error('Failed to save library item:', error);
+                alert('Failed to save: ' + error.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Changes';
+            }
+        }
+
+        // Initialize library filters on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add to existing DOMContentLoaded or call after page loads
+            setTimeout(loadLibraryFilters, 100);
+        });
+    </script>
+</body>
+</html>
