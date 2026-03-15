@@ -49,6 +49,7 @@ function isIsoTimestamp(value) {
 }
 
 function normalizeKbScope(scope) {
+  if (scope?.mode === 'none') return { mode: 'none', kb_ids: [] };
   const mode = scope?.mode === 'all' ? 'all' : 'selected';
   const kbIds =
     mode === 'all'
@@ -578,10 +579,8 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
   const content = req.body?.content?.trim();
   if (!content) return res.status(400).json(errorEnvelope('VALIDATION_ERROR', 'content is required'));
 
-  const kbIds = await resolveKbIds(req.body?.kb_scope, session, req);
-  if (!kbIds.length) {
-    return res.status(400).json(errorEnvelope('KB_SCOPE_NOT_RESOLVED', 'No KB ids resolved from scope/session'));
-  }
+  const normalizedScope = normalizeKbScope(req.body?.kb_scope);
+  const kbIds = normalizedScope.mode === 'none' ? [] : await resolveKbIds(req.body?.kb_scope, session, req);
 
   const userMessage = { id: `m_${crypto.randomUUID()}`, role: 'user', content, created_at: new Date().toISOString() };
   session.messages.push(userMessage);
@@ -904,6 +903,22 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
     }
 
     // --- Fallback: knowledge backend RAG (when codex cannot start) ---
+    // If no KBs selected, return a simple message — no RAG without KBs
+    if (!kbIds.length) {
+      const assistantMessage = {
+        id: `m_${crypto.randomUUID()}`,
+        role: 'assistant',
+        content: 'Codex agent is not available and no knowledge bases are selected for fallback RAG.',
+        created_at: new Date().toISOString()
+      };
+      session.messages.push(assistantMessage);
+      session.updated_at = assistantMessage.created_at;
+      persistSessions();
+      const payload = { assistant_message: assistantMessage, citations: [], retrieval_summary: { queried_kb_ids: [], top_k: topK }, action_requests: [] };
+      if (wantsSSE && sseOpen) { sseWrite('done', payload); res.end(); return; }
+      return res.json(payload);
+    }
+
     const perKb = await Promise.all(
       kbIds.map(async (kbId) => {
         const result = await remoteRequest({

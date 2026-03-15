@@ -240,7 +240,7 @@ function drawKbSelect() {
   const el = $('kb-select');
   if (!el) return;
   const selected = new Set(state.activeKbIds);
-  const label = selected.size === 0 ? 'Select KBs' : selected.size === state.kbs.length ? 'All KBs' : `${selected.size} KB${selected.size > 1 ? 's' : ''}`;
+  const label = selected.size === 0 ? 'No KB' : selected.size === state.kbs.length ? 'All KBs' : `${selected.size} KB${selected.size > 1 ? 's' : ''}`;
   el.innerHTML = `<button class="kb-toggle">${esc(label)} ▾</button>
     <div class="kb-dropdown" style="display:none">${state.kbs.map(k =>
       `<label class="kb-opt"><input type="checkbox" value="${k.id}" ${selected.has(k.id) ? 'checked' : ''}> ${esc(k.name)}</label>`
@@ -252,7 +252,7 @@ function drawKbSelect() {
   el.querySelectorAll('input[type=checkbox]').forEach(cb => {
     cb.onchange = () => {
       state.activeKbIds = [...el.querySelectorAll('input:checked')].map(c => c.value);
-      toggle.textContent = (state.activeKbIds.length === 0 ? 'Select KBs' : state.activeKbIds.length === state.kbs.length ? 'All KBs' : `${state.activeKbIds.length} KB${state.activeKbIds.length > 1 ? 's' : ''}`) + ' ▾';
+      toggle.textContent = (state.activeKbIds.length === 0 ? 'No KB' : state.activeKbIds.length === state.kbs.length ? 'All KBs' : `${state.activeKbIds.length} KB${state.activeKbIds.length > 1 ? 's' : ''}`) + ' ▾';
       persist();
     };
   });
@@ -331,7 +331,6 @@ async function createThread() {
 
 async function sendMessage() {
   if (!state.activeSessionId) return alert('Create/select a thread first');
-  if (!state.activeKbIds.length) return alert('Select at least one KB first');
 
   const input = $('chat-input');
   const content = input.value.trim();
@@ -350,7 +349,7 @@ async function sendMessage() {
     const response = await fetch(`${API_BASE}/v1/chat/sessions/${state.activeSessionId}/messages`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'accept': 'text/event-stream' },
-      body: JSON.stringify({ content, effort: state.thinkingDepth, kb_scope: { mode: 'selected', kb_ids: state.activeKbIds, top_k: 8 } })
+      body: JSON.stringify({ content, effort: state.thinkingDepth, kb_scope: state.activeKbIds.length ? { mode: 'selected', kb_ids: state.activeKbIds, top_k: 8 } : { mode: 'none' } })
     });
 
     const ct = response.headers.get('content-type') || '';
@@ -1176,7 +1175,6 @@ async function bootstrap() {
   state.kbs = await api('/v1/knowledge-bases');
   try { state.kbDeps = await api('/v1/knowledge-bases/dependencies'); } catch { state.kbDeps = {}; }
   state.sessions = (await api('/v1/chat/sessions')).items || [];
-  if (!state.activeKbIds.length && state.kbs.length) state.activeKbIds = [state.kbs[0].id];
   if (!state.activeSessionId && state.sessions.length) state.activeSessionId = state.sessions[0].id;
   if (state.activeSessionId) {
     state.messages = (await api(`/v1/chat/sessions/${state.activeSessionId}/messages`)).items || [];
