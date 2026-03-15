@@ -55,6 +55,7 @@ export async function init(options) {
   // --- Check for existing installation ---
   let installDir = path.resolve(options.dir || '.');
   const existingState = safeReadJson(path.join(installDir, '.noetix-state.json'));
+  let isUpdate = false;
 
   if (existingState) {
     console.log(chalk.yellow(`  Existing deployment detected in ${installDir}`));
@@ -73,6 +74,10 @@ export async function init(options) {
     if (action === 'cancel') {
       console.log(chalk.dim('  Cancelled.'));
       process.exit(0);
+    }
+
+    if (action === 'update') {
+      isUpdate = true;
     }
 
     if (action === 'alternate') {
@@ -128,23 +133,27 @@ export async function init(options) {
   const config = { mode };
 
   if (needsFrontend) {
-    const defaultGw = findAvailablePort(Number(options.port) || 8788, 10);
-    if (defaultGw !== 8788 && !options.port) {
-      console.log(chalk.yellow(`  Port 8788 is in use — suggesting ${defaultGw}`));
+    // On update, keep existing ports; on fresh install, detect conflicts
+    const preferredUiPort = Number(options.port) || (isUpdate && existingState.uiPort ? Number(existingState.uiPort) : 8788);
+    const defaultGw = isUpdate ? preferredUiPort : findAvailablePort(preferredUiPort, 10);
+    if (defaultGw !== preferredUiPort && !options.port && !isUpdate) {
+      console.log(chalk.yellow(`  Port ${preferredUiPort} is in use — suggesting ${defaultGw}`));
     }
     config.uiPort = options.port || (auto ? String(defaultGw) : await input({ message: 'Noetix UI port', default: String(defaultGw) }));
 
-    const defaultVite = findAvailablePort(Number(options.vitePort) || 5174, 1);
-    if (defaultVite !== 5174 && !options.vitePort) {
-      console.log(chalk.yellow(`  Port 5174 is in use — suggesting ${defaultVite}`));
+    const preferredVitePort = Number(options.vitePort) || (isUpdate && existingState.vitePort ? Number(existingState.vitePort) : 5174);
+    const defaultVite = isUpdate ? preferredVitePort : findAvailablePort(preferredVitePort, 1);
+    if (defaultVite !== preferredVitePort && !options.vitePort && !isUpdate) {
+      console.log(chalk.yellow(`  Port ${preferredVitePort} is in use — suggesting ${defaultVite}`));
     }
     config.vitePort = options.vitePort || (auto ? String(defaultVite) : await input({ message: 'Frontend dev port', default: String(defaultVite) }));
   }
 
   if (mode === 'frontend') {
-    config.backendUrl = options.backendUrl || (auto ? 'http://10.0.0.50:8001' : await input({
+    const defaultBackendUrl = (isUpdate && existingState.backendUrl) ? existingState.backendUrl : 'http://10.0.0.50:8001';
+    config.backendUrl = options.backendUrl || (auto ? defaultBackendUrl : await input({
       message: 'Backend URL (where the knowledge server is running)',
-      default: 'http://10.0.0.50:8001',
+      default: defaultBackendUrl,
     }));
     if (!/^https?:\/\//.test(config.backendUrl)) {
       config.backendUrl = `http://${config.backendUrl}`;
@@ -156,9 +165,10 @@ export async function init(options) {
   }
 
   if (needsBackend) {
-    const defaultBe = findAvailablePort(Number(options.backendPort) || 8001, 10);
-    if (defaultBe !== 8001 && !options.backendPort) {
-      console.log(chalk.yellow(`  Port 8001 is in use — suggesting ${defaultBe}`));
+    const preferredBePort = Number(options.backendPort) || (isUpdate && existingState.backendPort ? Number(existingState.backendPort) : 8001);
+    const defaultBe = isUpdate ? preferredBePort : findAvailablePort(preferredBePort, 10);
+    if (defaultBe !== preferredBePort && !options.backendPort && !isUpdate) {
+      console.log(chalk.yellow(`  Port ${preferredBePort} is in use — suggesting ${defaultBe}`));
     }
     config.backendPort = options.backendPort || (auto ? String(defaultBe) : await input({ message: 'Backend port', default: String(defaultBe) }));
     config.backendHost = auto ? '0.0.0.0' : await input({ message: 'Backend listen host', default: '0.0.0.0' });
@@ -173,14 +183,16 @@ export async function init(options) {
     config.socksProxy = '';
   }
 
-  // Final port conflict warning for chosen ports
-  const chosenPorts = [config.uiPort, config.vitePort, config.backendPort].filter(Boolean);
-  const conflicts = chosenPorts.filter(p => isPortInUse(Number(p)));
-  if (conflicts.length > 0) {
-    console.log(chalk.red(`  Warning: port(s) ${conflicts.join(', ')} are currently in use.`));
-    if (!auto) {
-      const proceed = await confirm({ message: 'Continue anyway?', default: false });
-      if (!proceed) process.exit(1);
+  // Final port conflict warning for chosen ports (skip on update — our own services hold these ports)
+  if (!isUpdate) {
+    const chosenPorts = [config.uiPort, config.vitePort, config.backendPort].filter(Boolean);
+    const conflicts = chosenPorts.filter(p => isPortInUse(Number(p)));
+    if (conflicts.length > 0) {
+      console.log(chalk.red(`  Warning: port(s) ${conflicts.join(', ')} are currently in use.`));
+      if (!auto) {
+        const proceed = await confirm({ message: 'Continue anyway?', default: false });
+        if (!proceed) process.exit(1);
+      }
     }
   }
 
