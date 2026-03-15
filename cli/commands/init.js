@@ -150,7 +150,7 @@ export async function init(options) {
   }
 
   if (mode === 'frontend') {
-    const defaultBackendUrl = (isUpdate && existingState.backendUrl) ? existingState.backendUrl : 'http://10.0.0.50:8001';
+    const defaultBackendUrl = (isUpdate && existingState.backendUrl) ? existingState.backendUrl : 'http://localhost:8001';
     config.backendUrl = options.backendUrl || (auto ? defaultBackendUrl : await input({
       message: 'Backend URL (where the knowledge server is running)',
       default: defaultBackendUrl,
