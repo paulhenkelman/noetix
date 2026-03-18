@@ -6,6 +6,12 @@
 
 import { DeltaType, StopReason } from './types.js';
 
+// Qwen3 and similar models emit <think>...</think> blocks in message.content
+// alongside the dedicated thinking field. Strip these from text output and
+// route them to the thinking stream instead.
+const THINK_OPEN = /<think>/g;
+const THINK_CLOSE = /<\/think>/g;
+
 export class OllamaProvider {
   constructor(config) {
     this.model = config.llmModel;
@@ -84,6 +90,8 @@ export class OllamaProvider {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let inThinkBlock = false; // Track <think>...</think> in content stream
+    let contentBuffer = '';   // Buffer content to detect think tags
 
     while (true) {
       const { done, value } = await reader.read();
@@ -109,7 +117,42 @@ export class OllamaProvider {
         }
 
         if (chunk.message?.content) {
-          yield { type: DeltaType.TEXT, delta: chunk.message.content };
+          // Filter <think>...</think> blocks from content stream
+          contentBuffer += chunk.message.content;
+          while (contentBuffer.length > 0) {
+            if (inThinkBlock) {
+              const closeIdx = contentBuffer.indexOf('</think>');
+              if (closeIdx >= 0) {
+                // Route thinking content to thinking stream
+                const thinkContent = contentBuffer.slice(0, closeIdx);
+                if (thinkContent) yield { type: DeltaType.THINKING, delta: thinkContent };
+                contentBuffer = contentBuffer.slice(closeIdx + 8);
+                inThinkBlock = false;
+              } else {
+                // Still inside think block, buffer and wait for more
+                if (contentBuffer.length > 100) {
+                  yield { type: DeltaType.THINKING, delta: contentBuffer };
+                  contentBuffer = '';
+                }
+                break;
+              }
+            } else {
+              const openIdx = contentBuffer.indexOf('<think>');
+              if (openIdx >= 0) {
+                // Emit text before the tag
+                const before = contentBuffer.slice(0, openIdx);
+                if (before) yield { type: DeltaType.TEXT, delta: before };
+                contentBuffer = contentBuffer.slice(openIdx + 7);
+                inThinkBlock = true;
+              } else if (contentBuffer.includes('<') && contentBuffer.length < 7) {
+                // Might be a partial <think> tag — buffer it
+                break;
+              } else {
+                yield { type: DeltaType.TEXT, delta: contentBuffer };
+                contentBuffer = '';
+              }
+            }
+          }
         }
 
         if (chunk.message?.tool_calls) {
