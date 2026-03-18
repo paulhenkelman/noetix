@@ -28,13 +28,11 @@ export class OllamaProvider {
           role: 'assistant',
           content: msg.content || '',
           tool_calls: msg.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: 'function',
             function: {
               name: tc.function.name,
               arguments: typeof tc.function.arguments === 'string'
-                ? tc.function.arguments
-                : JSON.stringify(tc.function.arguments),
+                ? JSON.parse(tc.function.arguments || '{}')
+                : (tc.function.arguments || {}),
             },
           })),
         };
@@ -106,6 +104,10 @@ export class OllamaProvider {
           continue;
         }
 
+        if (chunk.message?.thinking) {
+          yield { type: DeltaType.THINKING, delta: chunk.message.thinking };
+        }
+
         if (chunk.message?.content) {
           yield { type: DeltaType.TEXT, delta: chunk.message.content };
         }
@@ -122,7 +124,11 @@ export class OllamaProvider {
         }
 
         if (chunk.done) {
-          yield { type: DeltaType.DONE, stopReason: StopReason.END_TURN };
+          const hasToolCalls = chunk.message?.tool_calls?.length > 0;
+          yield {
+            type: DeltaType.DONE,
+            stopReason: hasToolCalls ? StopReason.TOOL_USE : StopReason.END_TURN,
+          };
           return;
         }
       }
