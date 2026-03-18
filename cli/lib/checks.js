@@ -1,5 +1,5 @@
 /**
- * Environment checks — codex, docker, node, system tools.
+ * Environment checks — docker, node, system tools.
  */
 
 import { execSync, spawnSync } from 'child_process';
@@ -15,39 +15,6 @@ export function getCommandVersion(cmd, flag = '--version') {
   try {
     return execSync(`${cmd} ${flag} 2>&1`, { encoding: 'utf-8' }).trim();
   } catch { return null; }
-}
-
-// --- Codex ---
-
-export function isCodexInstalled() {
-  return commandExists('codex');
-}
-
-export function getCodexVersion() {
-  return getCommandVersion('codex');
-}
-
-export function isCodexLoggedIn() {
-  try {
-    const out = execSync('codex login status 2>&1', { encoding: 'utf-8' }).trim();
-    return /logged in/i.test(out);
-  } catch { return false; }
-}
-
-export function installCodex() {
-  execSync('npm install -g @openai/codex', { stdio: 'inherit' });
-}
-
-export function launchCodexLogin() {
-  // codex login opens the browser for OAuth — must be interactive
-  spawnSync('codex', ['login'], { stdio: 'inherit' });
-}
-
-export function loginCodexWithApiKey(apiKey) {
-  spawnSync('codex', ['login', '--with-api-key'], {
-    stdio: ['pipe', 'inherit', 'inherit'],
-    input: apiKey + '\n',
-  });
 }
 
 // --- Docker ---

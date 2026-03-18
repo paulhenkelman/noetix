@@ -13,8 +13,6 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
-  isCodexInstalled, getCodexVersion, isCodexLoggedIn,
-  installCodex, launchCodexLogin, loginCodexWithApiKey,
   isDockerInstalled, isDockerRunning, hasNvidiaGpu,
   isFfmpegInstalled, isNodeVersionOk, isPythonInstalled, getPythonVersion,
   isPortInUse, findAvailablePort,
@@ -119,7 +117,7 @@ export async function init(options) {
   // =================================================================
 
   if (needsFrontend) {
-    await checkCodex(auto);
+    await checkLLMProvider(auto, config);
   }
 
   if (needsBackend) {
@@ -205,8 +203,20 @@ export async function init(options) {
 
   fs.mkdirSync(installDir, { recursive: true });
 
-  // noetix.config
-  const noetixConfig = readTemplate('noetix.config');
+  // noetix.config — write LLM provider settings from checkLLMProvider
+  let noetixConfig = readTemplate('noetix.config');
+  if (config.llmProvider) {
+    noetixConfig = noetixConfig.replace(/^provider = .*$/m, `provider = "${config.llmProvider}"`);
+  }
+  if (config.llmModel) {
+    noetixConfig = noetixConfig.replace(/^model = .*$/m, `model = "${config.llmModel}"`);
+  }
+  if (config.llmApiKey) {
+    noetixConfig = noetixConfig.replace(/^api_key = ""$/m, `api_key = "${config.llmApiKey}"`);
+  }
+  if (config.llmBaseUrl) {
+    noetixConfig = noetixConfig.replace(/^base_url = ""$/m, `base_url = "${config.llmBaseUrl}"`);
+  }
   fs.writeFileSync(path.join(installDir, 'noetix.config'), noetixConfig);
 
   // ui.config
@@ -253,22 +263,6 @@ export async function init(options) {
 
   if (needsBackend) {
     await installBackend(installDir, config, auto, options.backendDeploy);
-  }
-
-  // =================================================================
-  // Generate codex config
-  // =================================================================
-
-  if (needsFrontend) {
-    const spinner = ora('Generating codex config').start();
-    try {
-      execSync(`node ${path.join(installDir, 'scripts', 'generate-codex-config.js')}`, {
-        cwd: installDir, stdio: 'pipe',
-      });
-      spinner.succeed('Codex config generated (~/.codex/config.toml)');
-    } catch (err) {
-      spinner.warn('Codex config generation skipped (run manually: node scripts/generate-codex-config.js)');
-    }
   }
 
   // =================================================================
@@ -360,87 +354,64 @@ export async function init(options) {
 }
 
 // -----------------------------------------------------------------
-// Codex prerequisite check
+// LLM provider prerequisite check
 // -----------------------------------------------------------------
 
-async function checkCodex(auto = false) {
+async function checkLLMProvider(auto = false, config = {}) {
   console.log(chalk.dim('Checking prerequisites...'));
-
-  if (!isCodexInstalled()) {
-    console.log(chalk.yellow('  Codex CLI is not installed.'));
-    const doInstall = auto || await confirm({
-      message: 'Install Codex CLI now? (npm install -g @openai/codex)',
-      default: true,
-    });
-    if (doInstall) {
-      const spinner = ora('Installing Codex CLI').start();
-      try {
-        installCodex();
-        spinner.succeed(`Codex CLI installed (${getCodexVersion()})`);
-      } catch (err) {
-        spinner.fail('Failed to install Codex CLI');
-        console.log(chalk.red(`  Error: ${err.message}`));
-        console.log(chalk.dim('  Install manually: npm install -g @openai/codex'));
-        if (!auto) {
-          const proceed = await confirm({ message: 'Continue without Codex?', default: false });
-          if (!proceed) process.exit(1);
-        }
-      }
-    } else {
-      console.log(chalk.dim('  Skipping Codex install. Install later: npm install -g @openai/codex'));
-    }
-  } else {
-    console.log(chalk.green(`  Codex CLI: ${getCodexVersion()}`));
-  }
-
-  // Check login
-  if (isCodexInstalled() && !isCodexLoggedIn()) {
-    if (auto) {
-      console.log(chalk.yellow('  Codex is not logged in. Run `codex login` to authenticate.'));
-    } else {
-    console.log(chalk.yellow('  Codex is not logged in.'));
-    const loginMethod = await select({
-      message: 'How would you like to authenticate Codex?',
-      choices: [
-        { name: 'Browser login (opens browser for OAuth)', value: 'browser' },
-        { name: 'API key (enter your OpenAI API key)', value: 'apikey' },
-        { name: 'Skip (configure later)', value: 'skip' },
-      ],
-    });
-    if (loginMethod === 'browser') {
-      console.log(chalk.dim('  Opening browser for Codex authentication...'));
-      launchCodexLogin();
-      if (isCodexLoggedIn()) {
-        console.log(chalk.green('  Codex login successful'));
-      } else {
-        console.log(chalk.yellow('  Codex login may not have completed. You can retry with: codex login'));
-      }
-    } else if (loginMethod === 'apikey') {
-      const apiKey = await password({
-        message: 'OpenAI API key',
-        mask: '*',
-      });
-      if (apiKey) {
-        loginCodexWithApiKey(apiKey);
-        if (isCodexLoggedIn()) {
-          console.log(chalk.green('  Codex login successful'));
-        } else {
-          console.log(chalk.yellow('  Codex login may not have completed. You can retry with: codex login --with-api-key'));
-        }
-      }
-    } else {
-      console.log(chalk.dim('  Log in later: codex login'));
-    }
-    } // end else (not auto)
-  } else if (isCodexInstalled()) {
-    console.log(chalk.green('  Codex: logged in'));
-  }
 
   if (!isNodeVersionOk()) {
     console.log(chalk.red('  Node.js 18+ is required'));
     process.exit(1);
   }
+  console.log(chalk.green(`  Node.js: ${process.versions.node}`));
 
+  // Select LLM provider
+  const provider = auto ? 'openai' : await select({
+    message: 'LLM provider',
+    choices: [
+      { name: 'OpenAI (GPT models via API)', value: 'openai' },
+      { name: 'Anthropic (Claude models via API)', value: 'anthropic' },
+      { name: 'Ollama (local models)', value: 'ollama' },
+      { name: 'vLLM (self-hosted OpenAI-compatible)', value: 'vllm' },
+    ],
+  });
+  config.llmProvider = provider;
+
+  if (provider === 'openai' || provider === 'anthropic') {
+    const providerName = provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    const apiKey = auto ? '' : await password({
+      message: `${providerName} API key (or press Enter to configure later)`,
+      mask: '*',
+    });
+    config.llmApiKey = apiKey || '';
+    if (!apiKey) {
+      console.log(chalk.dim(`  Set API key later in noetix.config [llm] section`));
+    }
+  } else if (provider === 'ollama' || provider === 'vllm') {
+    const defaultUrl = provider === 'ollama' ? 'http://localhost:11434' : 'http://localhost:8000/v1';
+    const baseUrl = auto ? defaultUrl : await input({
+      message: `${provider === 'ollama' ? 'Ollama' : 'vLLM'} base URL`,
+      default: defaultUrl,
+    });
+    config.llmBaseUrl = baseUrl;
+  }
+
+  // Model name
+  const defaultModel = {
+    openai: 'gpt-5.3',
+    anthropic: 'claude-sonnet-4-6-20250514',
+    ollama: 'llama3.3',
+    vllm: 'meta-llama/Llama-3.3-70B-Instruct',
+  }[provider];
+
+  const model = auto ? defaultModel : await input({
+    message: 'Model name',
+    default: defaultModel,
+  });
+  config.llmModel = model;
+
+  console.log(chalk.green(`  LLM: ${provider}/${model}`));
   console.log('');
 }
 
@@ -499,15 +470,6 @@ async function installFrontend(installDir, config) {
     } else {
       spinner.warn('Frontend source not found in CLI package — skipping copy');
       return;
-    }
-  }
-
-  // Copy scripts/ for codex config generation
-  const scriptsDir = path.join(installDir, 'scripts');
-  if (!fs.existsSync(scriptsDir)) {
-    const cliScriptsDir = path.join(CLI_ROOT, 'scripts');
-    if (fs.existsSync(cliScriptsDir)) {
-      fs.cpSync(cliScriptsDir, scriptsDir, { recursive: true });
     }
   }
 

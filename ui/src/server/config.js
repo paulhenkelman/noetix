@@ -36,6 +36,42 @@ function expandHome(p) {
 const ui = loadToml('ui.config');
 const noetix = loadToml('noetix.config');
 
+// Resolve MCP server configs (replaces scripts/generate-codex-config.js)
+const mcpRaw = noetix.mcp_servers || {};
+const remoteBase = process.env.REMOTE_BASE || ui.backend?.url || 'http://10.0.0.50:8001';
+const socksProxyVal = process.env.SOCKS_PROXY || ui.backend?.socks_proxy || '';
+const downloadsDirVal = expandHome(ui.playwright?.downloads_dir || '~/.cache/noetix-playwright');
+
+const kbServerPath = path.join(PROJECT_ROOT, 'ui', 'src', 'server', 'kb-mcp-server.js');
+const contentServerPath = path.join(PROJECT_ROOT, 'ui', 'src', 'server', 'content-mcp-server.js');
+const playwrightCfg = mcpRaw.playwright || {};
+const playwrightOutputDir = expandHome(playwrightCfg.output_dir || '~/.cache/noetix-playwright');
+const cdpEndpoint = playwrightCfg.cdp_endpoint || 'http://localhost:9222';
+
+const mcpServers = {
+  kb: {
+    command: mcpRaw.kb?.command || 'node',
+    args: [kbServerPath],
+    env: { REMOTE_BASE: remoteBase, SOCKS_PROXY: socksProxyVal },
+    startupTimeout: (mcpRaw.kb?.startup_timeout_sec || 10) * 1000,
+    toolTimeout: (mcpRaw.kb?.tool_timeout_sec || 30) * 1000,
+  },
+  content: {
+    command: mcpRaw.content?.command || 'node',
+    args: [contentServerPath],
+    env: { REMOTE_BASE: remoteBase, DOWNLOADS_DIR: downloadsDirVal },
+    startupTimeout: (mcpRaw.content?.startup_timeout_sec || 10) * 1000,
+    toolTimeout: (mcpRaw.content?.tool_timeout_sec || 600) * 1000,
+  },
+  playwright: {
+    command: playwrightCfg.command || 'playwright-mcp',
+    args: ['--cdp-endpoint', cdpEndpoint],
+    env: { OUTPUT_DIR: playwrightOutputDir },
+    startupTimeout: (playwrightCfg.startup_timeout_sec || 15) * 1000,
+    toolTimeout: (playwrightCfg.tool_timeout_sec || 60) * 1000,
+  },
+};
+
 const config = {
   // Project
   projectRoot: PROJECT_ROOT,
@@ -49,24 +85,33 @@ const config = {
   actionsMode: process.env.ACTIONS_MODE || ui.server?.actions_mode || 'remote',
 
   // Backend
-  remoteBase: process.env.REMOTE_BASE || ui.backend?.url || 'http://10.0.0.50:8001',
-  socksProxy: process.env.SOCKS_PROXY || ui.backend?.socks_proxy || '',
+  remoteBase,
+  socksProxy: socksProxyVal,
   backendTimeout: ui.backend?.request_timeout_ms || 60000,
 
   // Playwright
   playwrightMcpUrl: process.env.PLAYWRIGHT_MCP_URL || ui.playwright?.mcp_url || 'http://localhost:8931/mcp',
   playwrightProbeTimeout: ui.playwright?.probe_timeout_ms || 3000,
   playwrightFallbackPorts: ui.playwright?.fallback_ports || [8931, 8932, 3000],
-  downloadsDir: expandHome(ui.playwright?.downloads_dir || '~/.cache/noetix-playwright'),
+  downloadsDir: downloadsDirVal,
 
-  // Codex client
-  codexRequestTimeout: ui.codex_client?.request_timeout_ms || 7200000,
-  codexRestartDelay: ui.codex_client?.restart_delay_ms || 1000,
-  codexMaxRestartAttempts: ui.codex_client?.max_restart_attempts || 5,
+  // LLM
+  llmProvider: process.env.LLM_PROVIDER || noetix.llm?.provider || 'openai',
+  llmModel: process.env.LLM_MODEL || noetix.llm?.model || 'gpt-5.3',
+  llmApiKey: process.env.LLM_API_KEY || noetix.llm?.api_key || '',
+  llmBaseUrl: process.env.LLM_BASE_URL || noetix.llm?.base_url || '',
+  llmReasoningEffort: noetix.llm?.reasoning_effort || 'high',
+  llmMaxTokens: noetix.llm?.max_tokens || 16384,
+  llmTemperature: noetix.llm?.temperature ?? 0.0,
+  llmMaxToolIterations: noetix.llm?.max_tool_iterations || 30,
 
-  // Codex model
-  codexModel: noetix.codex?.model || 'gpt-5.3-codex',
-  codexReasoningEffort: noetix.codex?.reasoning_effort || 'xhigh',
+  // Agent
+  agentRequestTimeout: ui.agent?.request_timeout_ms || 7200000,
+  agentRestartDelay: ui.agent?.restart_delay_ms || 1000,
+  agentMaxRestartAttempts: ui.agent?.max_restart_attempts || 5,
+
+  // MCP servers (structured)
+  mcpServers,
 
   // Verify
   maxVerifyAttempts: ui.verify?.max_attempts || 2,

@@ -10,7 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { execSync, spawn as spawnChild } from 'child_process';
 import { detectLiveEndpoint, formatDiagnostics } from './playwright-mcp.js';
-import { CodexClient } from './codex-client.js';
+import { AgentRunner } from './agent-runner.js';
 import { MAX_VERIFY_ATTEMPTS, REQUIRES_TOOL_USE, needsVerification, buildCorrectionPrompt, selectBestResponse } from './verify.js';
 import config from './config.js';
 
@@ -250,10 +250,10 @@ const host = config.host;
 
 const socksAgent = SOCKS_PROXY ? new SocksProxyAgent(SOCKS_PROXY) : null;
 
-// Initialize Codex app-server client
-const codex = new CodexClient();
+// Initialize agent runner (LLM + MCP)
+const codex = new AgentRunner();
 codex.init().catch((err) => {
-  console.error(`[server] Failed to start codex app-server: ${err.message}`);
+  console.error(`[server] Failed to start agent: ${err.message}`);
 });
 
 /**
@@ -418,8 +418,8 @@ app.get('/health', (_req, res) =>
     remote_base: REMOTE_BASE,
     socks_proxy: SOCKS_PROXY || null,
     actions_mode: ACTIONS_MODE,
-    chat_backend: 'codex',
-    codex_ready: codex.isReady,
+    chat_backend: config.llmProvider,
+    agent_ready: codex.isReady,
     playwright_mcp_url: PLAYWRIGHT_MCP_URL
   })
 );
@@ -446,6 +446,24 @@ app.get('/v1/playwright-mcp/status', async (_req, res) => {
       diagnostics: [],
       message: `Playwright MCP detection failed: ${err.message}`
     });
+  }
+});
+
+// Analyze endpoint — single-turn LLM call via Codex for PDF structure extraction
+app.post('/api/analyze', async (req, res) => {
+  const { prompt } = req.body || {};
+  if (!prompt || typeof prompt !== 'string') {
+    return res.status(400).json({ error: 'Missing required field: prompt' });
+  }
+
+  try {
+    await codex.ensureReady();
+    const conv = await codex.createThread('You are a document structure analyzer. Return ONLY the requested JSON, no markdown, no explanation.');
+    const result = await codex.sendTurn(conv.threadId, prompt);
+    return res.json({ result: result.text || '' });
+  } catch (err) {
+    console.error(`[server] /api/analyze failed: ${err.message}`);
+    return res.status(502).json({ error: `Analysis failed: ${err.message}` });
   }
 });
 
