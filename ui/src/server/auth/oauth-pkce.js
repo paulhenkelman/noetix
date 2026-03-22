@@ -55,7 +55,7 @@ export function generatePKCE() {
   return { codeVerifier, codeChallenge };
 }
 
-export function buildAuthorizationUrl(provider) {
+export function buildAuthorizationUrl(provider, opts = {}) {
   const cfg = OAUTH_PROVIDERS[provider];
   if (!cfg) throw new Error(`No OAuth config for provider: ${provider}`);
 
@@ -72,6 +72,11 @@ export function buildAuthorizationUrl(provider) {
     state,
     ...cfg.extraParams,
   });
+
+  // Include organization/workspace ID so it's embedded in the id_token
+  if (opts.organizationId) {
+    params.set('allowed_workspace_id', opts.organizationId);
+  }
 
   return {
     url: `${cfg.authEndpoint}?${params.toString()}`,

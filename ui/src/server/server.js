@@ -587,7 +587,9 @@ app.get('/v1/auth/oauth/start', (req, res) => {
     return res.status(400).json({ error: `No OAuth config for provider: ${provider}` });
   }
 
-  const { url, codeVerifier, state } = buildAuthorizationUrl(provider);
+  const { url, codeVerifier, state } = buildAuthorizationUrl(provider, {
+    organizationId: config.llmOrganizationId,
+  });
 
   // Start callback server to receive the redirect
   const callback = startCallbackServer(1455);

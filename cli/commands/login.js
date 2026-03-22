@@ -61,7 +61,7 @@ async function loginWithBrowser(provider, store, oauth, organizationId) {
   const { startCallbackServer } = await loadCallbackServer();
 
   const cfg = OAUTH_PROVIDERS[provider];
-  const { url, codeVerifier, state } = buildAuthorizationUrl(provider);
+  const { url, codeVerifier, state } = buildAuthorizationUrl(provider, { organizationId });
 
   // Start local callback server
   const callback = startCallbackServer(1455);
