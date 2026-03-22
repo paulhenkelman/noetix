@@ -14,7 +14,9 @@ const state = {
   thinkingDepth: 'xhigh',
   filterOptions: null,
   kbDocs: {},
-  kbDeps: {}
+  kbDeps: {},
+  models: [],
+  activeModel: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -194,6 +196,7 @@ function renderChat() {
 
     <div class="panel chat-main">
       <div class="panel-head">
+        <select id="model-select" title="Model" style="max-width:220px;font-size:12px;padding:4px"></select>
         <select id="thinking-select" title="Thinking depth" style="width:70px;font-size:12px;padding:4px"></select>
         <div id="kb-select" class="kb-multi-select"></div>
         <span class="hint">Enter to send • Shift+Enter newline</span>
@@ -223,6 +226,9 @@ function renderChat() {
     persist();
   };
 
+  // Model selector
+  drawModelSelect();
+
   // KB multi-select handled by drawKbSelect()
 
   const input = $('chat-input');
@@ -236,6 +242,54 @@ function renderChat() {
   drawKbSelect();
   drawThreads();
   drawMessages();
+}
+
+function drawModelSelect() {
+  const el = $('model-select');
+  if (!el) return;
+
+  // Group models by provider
+  const grouped = {};
+  for (const m of state.models) {
+    if (!grouped[m.provider]) grouped[m.provider] = [];
+    grouped[m.provider].push(m);
+  }
+
+  const activeKey = state.activeModel ? `${state.activeModel.provider}/${state.activeModel.model}` : '';
+
+  let html = '';
+  for (const [provider, models] of Object.entries(grouped)) {
+    html += `<optgroup label="${esc(provider)}">`;
+    for (const m of models) {
+      const key = `${m.provider}/${m.model}`;
+      const short = m.model.replace(/-202505\d\d$/, '').replace(/-202510\d\d$/, '');
+      html += `<option value="${esc(key)}" ${key === activeKey ? 'selected' : ''}>${esc(short)}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+
+  if (!html) html = `<option disabled>No models available</option>`;
+  el.innerHTML = html;
+
+  el.onchange = async (e) => {
+    const [provider, ...rest] = e.target.value.split('/');
+    const model = rest.join('/');
+    el.disabled = true;
+
+    try {
+      await api('/v1/models/select', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider, model }),
+      });
+      state.activeModel = { provider, model };
+    } catch (err) {
+      alert(`Failed to switch model: ${err.message}`);
+      // Revert selection
+      el.value = activeKey;
+    }
+    el.disabled = false;
+  };
 }
 
 function drawKbSelect() {
@@ -1284,7 +1338,16 @@ function showLoginOverlay(provider, method) {
   $('login-token').onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
 }
 
+async function loadModels() {
+  try {
+    const data = await api('/v1/models');
+    state.models = data.models || [];
+    state.activeModel = data.active || null;
+  } catch { state.models = []; }
+}
+
 async function doBootstrap() {
+  await loadModels();
   state.kbs = await api('/v1/knowledge-bases');
   try { state.kbDeps = await api('/v1/knowledge-bases/dependencies'); } catch { state.kbDeps = {}; }
   state.sessions = (await api('/v1/chat/sessions')).items || [];

@@ -480,6 +480,108 @@ app.post('/v1/auth/logout', async (_req, res) => {
   res.json({ ok: true, provider });
 });
 
+// Model listing and selection
+const OPENAI_MODELS = [
+  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini',
+  'o3', 'o3-mini', 'o4-mini',
+];
+const ANTHROPIC_MODELS = [
+  'claude-sonnet-4-6-20250514', 'claude-opus-4-6-20250514',
+  'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250514',
+];
+
+app.get('/v1/models', async (_req, res) => {
+  const models = [];
+  const activeProvider = config.llmProvider;
+  const activeModel = codex.model;
+
+  // OpenAI — try API query, fall back to curated list
+  const openaiCreds = getProviderCredentials('openai');
+  const openaiKey = config.llmApiKey || openaiCreds?.apiKey;
+  const openaiToken = openaiCreds?.token;
+  const hasOpenai = openaiKey || openaiToken;
+  let openaiFromApi = false;
+
+  if (hasOpenai) {
+    try {
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${openaiKey || openaiToken}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const ids = data.data
+          .map(m => m.id)
+          .filter(id => /^(gpt-|o[1-9]|chatgpt-)/.test(id))
+          .sort();
+        for (const id of ids) {
+          models.push({ provider: 'openai', model: id, active: activeProvider === 'openai' && activeModel === id });
+        }
+        openaiFromApi = ids.length > 0;
+      }
+    } catch {}
+
+    // Fallback to curated list if API query failed (e.g. OAuth token lacks scope)
+    if (!openaiFromApi) {
+      for (const id of OPENAI_MODELS) {
+        models.push({ provider: 'openai', model: id, active: activeProvider === 'openai' && activeModel === id });
+      }
+    }
+  }
+
+  // Anthropic — static list, show if we have any credentials
+  const anthropicCreds = getProviderCredentials('anthropic');
+  if (anthropicCreds?.apiKey || anthropicCreds?.token || (activeProvider === 'anthropic' && config.llmApiKey)) {
+    for (const id of ANTHROPIC_MODELS) {
+      models.push({ provider: 'anthropic', model: id, active: activeProvider === 'anthropic' && activeModel === id });
+    }
+  }
+
+  // Ollama — query local server (no auth needed)
+  try {
+    const ollamaBase = config.llmProvider === 'ollama' ? (config.llmBaseUrl || 'http://localhost:11434') : 'http://localhost:11434';
+    const resp = await fetch(`${ollamaBase}/api/tags`, { signal: AbortSignal.timeout(2000) });
+    if (resp.ok) {
+      const data = await resp.json();
+      for (const m of (data.models || [])) {
+        models.push({ provider: 'ollama', model: m.name, active: activeProvider === 'ollama' && activeModel === m.name });
+      }
+    }
+  } catch {}
+
+  // vLLM — query if configured
+  if (activeProvider === 'vllm' && config.llmBaseUrl) {
+    try {
+      const resp = await fetch(`${config.llmBaseUrl}/models`, { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) {
+        const data = await resp.json();
+        for (const m of (data.data || [])) {
+          models.push({ provider: 'vllm', model: m.id, active: activeProvider === 'vllm' && activeModel === m.id });
+        }
+      }
+    } catch {}
+  }
+
+  res.json({ models, active: { provider: activeProvider, model: activeModel } });
+});
+
+app.post('/v1/models/select', async (req, res) => {
+  const { provider, model } = req.body || {};
+  if (!provider || !model) return res.status(400).json({ error: 'provider and model are required' });
+
+  // Update config in memory
+  config.llmProvider = provider;
+  config.llmModel = model;
+
+  // Restart agent with new model
+  try {
+    await codex.restart();
+    res.json({ ok: true, provider, model });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: `Failed to switch model: ${err.message}` });
+  }
+});
+
 // OAuth browser flow (PKCE)
 const pendingOAuthFlows = new Map();
 
@@ -1065,13 +1167,13 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
       return res.json(responsePayload);
     }
 
-    // --- Fallback: knowledge backend RAG (when codex cannot start) ---
-    // If no KBs selected, return a simple message — no RAG without KBs
+    // --- Fallback: knowledge backend memory retrieval (when agent cannot start) ---
+    // If no KBs selected, return a simple message — no retrieval without KBs
     if (!kbIds.length) {
       const assistantMessage = {
         id: `m_${crypto.randomUUID()}`,
         role: 'assistant',
-        content: 'Codex agent is not available and no knowledge bases are selected for fallback RAG.',
+        content: 'Agent is not available and no knowledge bases are selected for memory retrieval.',
         created_at: new Date().toISOString()
       };
       session.messages.push(assistantMessage);
