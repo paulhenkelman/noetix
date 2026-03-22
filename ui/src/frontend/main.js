@@ -248,14 +248,18 @@ function drawModelSelect() {
   const el = $('model-select');
   if (!el) return;
 
+  // Ensure active model is always in the list
+  const activeKey = state.activeModel ? `${state.activeModel.provider}/${state.activeModel.model}` : '';
+  if (activeKey && !state.models.some(m => `${m.provider}/${m.model}` === activeKey)) {
+    state.models.push({ provider: state.activeModel.provider, model: state.activeModel.model, active: true });
+  }
+
   // Group models by provider
   const grouped = {};
   for (const m of state.models) {
     if (!grouped[m.provider]) grouped[m.provider] = [];
     grouped[m.provider].push(m);
   }
-
-  const activeKey = state.activeModel ? `${state.activeModel.provider}/${state.activeModel.model}` : '';
 
   let html = '';
   for (const [provider, models] of Object.entries(grouped)) {
@@ -1315,9 +1319,11 @@ function showLoginOverlay(provider, method) {
     $('login-submit').disabled = true;
     $('login-submit').textContent = 'Signing in...';
     try {
-      const body = isOauth
-        ? { method: 'oauth', token: val, provider }
-        : { method: 'api_key', apiKey: val, provider };
+      // Auto-detect: if it looks like an API key (sk-...), treat as API key
+      const looksLikeApiKey = val.startsWith('sk-');
+      const body = looksLikeApiKey
+        ? { method: 'api_key', apiKey: val, provider }
+        : { method: 'oauth', token: val, provider };
       const r = await fetch(`${API_BASE}/v1/auth/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
