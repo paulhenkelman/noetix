@@ -464,8 +464,7 @@ app.post('/v1/auth/login', async (req, res) => {
 
   // Reinitialize agent runner with new credentials
   try {
-    await codex.shutdown();
-    await codex.init();
+    await codex.restart();
     res.json({ ok: true, provider, method: method || 'api_key' });
   } catch (err) {
     res.status(500).json({ ok: false, error: `Agent restart failed: ${err.message}` });
@@ -530,9 +529,10 @@ app.get('/v1/auth/oauth/start', (req, res) => {
 
       // Reinitialize agent with new credentials
       try {
-        await codex.shutdown();
-        await codex.init();
-      } catch {}
+        await codex.restart();
+      } catch (reinitErr) {
+        console.error(`[server] Agent restart after OAuth failed: ${reinitErr.message}`);
+      }
 
       flow.completed = true;
       flow.email = claims.email;

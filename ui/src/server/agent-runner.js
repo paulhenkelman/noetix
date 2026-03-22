@@ -133,4 +133,10 @@ export class AgentRunner {
 
     console.log(`${LOG_PREFIX} Shut down`);
   }
+
+  async restart() {
+    await this.shutdown();
+    this._shutdownRequested = false;
+    await this.init();
+  }
 }
