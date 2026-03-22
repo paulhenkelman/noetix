@@ -19,7 +19,7 @@ export const OAUTH_PROVIDERS = {
     tokenEndpoint: 'https://auth.openai.com/oauth/token',
     clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
     redirectUri: 'http://localhost:1455/auth/callback',
-    scopes: 'openid profile email offline_access api.model.read',
+    scopes: 'openid profile email offline_access',
     extraParams: {
       id_token_add_organizations: 'true',
       codex_cli_simplified_flow: 'true',

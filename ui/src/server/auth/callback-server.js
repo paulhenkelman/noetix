@@ -41,16 +41,23 @@ export function startCallbackServer(port = 1455, timeout = 120000) {
     if (url.pathname === '/auth/callback') {
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
+      const error = url.searchParams.get('error');
+      const errorDesc = url.searchParams.get('error_description');
 
       if (code) {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(SUCCESS_HTML);
         resolve({ code, state });
+      } else if (error) {
+        const msg = errorDesc || error;
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(ERROR_HTML.replace('Missing authorization code. Please try again.', msg));
+        reject(new Error(`OAuth error: ${msg}`));
       } else {
         res.writeHead(400, { 'Content-Type': 'text/html' });
         res.end(ERROR_HTML);
+        reject(new Error('OAuth callback missing authorization code'));
       }
-      // Close server after handling callback
       setTimeout(() => server.close(), 500);
     } else {
       res.writeHead(404);
