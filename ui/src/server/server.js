@@ -14,7 +14,7 @@ import { AgentRunner } from './agent-runner.js';
 import { MAX_VERIFY_ATTEMPTS, REQUIRES_TOOL_USE, needsVerification, buildCorrectionPrompt, selectBestResponse } from './verify.js';
 import config from './config.js';
 import { getProviderCredentials, setProviderCredentials, clearProviderCredentials } from './auth/credential-store.js';
-import { buildAuthorizationUrl, exchangeCodeForTokens, parseJwtClaims, OAUTH_PROVIDERS } from './auth/oauth-pkce.js';
+import { buildAuthorizationUrl, exchangeCodeForTokens, exchangeIdTokenForApiKey, parseJwtClaims, OAUTH_PROVIDERS } from './auth/oauth-pkce.js';
 import { startCallbackServer } from './auth/callback-server.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -511,20 +511,27 @@ app.get('/v1/auth/oauth/start', (req, res) => {
     try {
       const tokens = await exchangeCodeForTokens(flow.provider, code, flow.codeVerifier);
       const claims = parseJwtClaims(tokens.idToken || tokens.accessToken);
-      const accountId = claims?.['https://api.openai.com/auth']?.chatgpt_account_id
-        || claims?.['https://api.openai.com/auth']?.organization_id
-        || undefined;
+
+      // For OpenAI: exchange id_token for API key usable at api.openai.com
+      let apiKey;
+      if (flow.provider === 'openai' && tokens.idToken) {
+        try {
+          apiKey = await exchangeIdTokenForApiKey(tokens.idToken);
+        } catch (err) {
+          console.error(`[server] API key exchange failed: ${err.message}`);
+        }
+      }
 
       const cfg = OAUTH_PROVIDERS[flow.provider];
       setProviderCredentials(flow.provider, {
         type: 'oauth',
+        apiKey: apiKey || undefined,
         token: tokens.accessToken,
+        idToken: tokens.idToken,
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
         tokenEndpoint: cfg.tokenEndpoint,
         clientId: cfg.clientId,
-        accountId,
-        subscriptionBaseUrl: cfg.subscriptionBaseUrl || undefined,
       });
 
       // Reinitialize agent with new credentials

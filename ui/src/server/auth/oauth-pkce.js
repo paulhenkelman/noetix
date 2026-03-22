@@ -142,6 +142,23 @@ export async function exchangeCodeForTokens(provider, code, codeVerifier) {
   };
 }
 
+/**
+ * Exchange an OAuth id_token for an OpenAI API key.
+ * This is the critical second step after OAuth login — the resulting
+ * API key works at api.openai.com/v1 (no Cloudflare issues).
+ */
+export async function exchangeIdTokenForApiKey(idToken) {
+  const body = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+    subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
+    subject_token: idToken,
+    requested_token: 'openai-api-key',
+  }).toString();
+
+  const resp = await httpsPost(OAUTH_PROVIDERS.openai.tokenEndpoint, body);
+  return resp.api_key || resp.access_token || resp.token;
+}
+
 export async function refreshAccessToken(provider, refreshToken) {
   const cfg = OAUTH_PROVIDERS[provider];
 

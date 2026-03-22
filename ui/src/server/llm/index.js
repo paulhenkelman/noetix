@@ -17,12 +17,14 @@ export async function createProvider(config) {
       // Already set from LLM_AUTH_TOKEN env var — use as-is
     } else {
       const creds = getProviderCredentials(provider);
-      if (creds?.type === 'oauth' && creds.token) {
-        resolved.llmAuthToken = creds.token;
-        resolved.llmTokenGetter = () => getValidToken(provider);
-        // Subscription routing metadata (OpenAI chatgpt.com endpoint)
-        if (creds.accountId) resolved.llmAccountId = creds.accountId;
-        if (creds.subscriptionBaseUrl) resolved.llmSubscriptionBaseUrl = creds.subscriptionBaseUrl;
+      if (creds?.type === 'oauth') {
+        // Prefer exchanged API key (works at api.openai.com, no Cloudflare)
+        if (creds.apiKey) {
+          resolved.llmApiKey = creds.apiKey;
+        } else if (creds.token) {
+          resolved.llmAuthToken = creds.token;
+          resolved.llmTokenGetter = () => getValidToken(provider);
+        }
       }
     }
   } else if (!resolved.llmApiKey) {

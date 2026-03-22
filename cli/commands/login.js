@@ -57,7 +57,7 @@ function openBrowser(url) {
 // ---------------------------------------------------------------------------
 
 async function loginWithBrowser(provider, store, oauth) {
-  const { buildAuthorizationUrl, exchangeCodeForTokens, parseJwtClaims, OAUTH_PROVIDERS } = oauth;
+  const { buildAuthorizationUrl, exchangeCodeForTokens, exchangeIdTokenForApiKey, parseJwtClaims, OAUTH_PROVIDERS } = oauth;
   const { startCallbackServer } = await loadCallbackServer();
 
   const cfg = OAUTH_PROVIDERS[provider];
@@ -87,25 +87,33 @@ async function loginWithBrowser(provider, store, oauth) {
     spinner.text = 'Exchanging authorization code...';
     const tokens = await exchangeCodeForTokens(provider, code, codeVerifier);
 
-    // Extract account info from JWT
     const claims = parseJwtClaims(tokens.idToken || tokens.accessToken);
-    const accountId = claims?.['https://api.openai.com/auth']?.chatgpt_account_id
-      || claims?.['https://api.openai.com/auth']?.organization_id
-      || undefined;
+
+    // For OpenAI: exchange id_token for an API key that works at api.openai.com
+    let apiKey;
+    if (provider === 'openai' && tokens.idToken) {
+      spinner.text = 'Obtaining API key from subscription...';
+      try {
+        apiKey = await exchangeIdTokenForApiKey(tokens.idToken);
+      } catch (err) {
+        console.log(chalk.yellow(`  API key exchange failed: ${err.message}`));
+        console.log(chalk.dim(`  Falling back to access token (may require chatgpt.com endpoint)`));
+      }
+    }
 
     // Store credentials
     store.setProviderCredentials(provider, {
       type: 'oauth',
+      apiKey: apiKey || undefined,
       token: tokens.accessToken,
+      idToken: tokens.idToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
       tokenEndpoint: cfg.tokenEndpoint,
       clientId: cfg.clientId,
-      accountId,
-      subscriptionBaseUrl: cfg.subscriptionBaseUrl || undefined,
     });
 
-    spinner.succeed(`Signed in to ${provider}`);
+    spinner.succeed(`Signed in to ${provider}${apiKey ? ' (API key obtained)' : ''}`);
     if (claims.email) console.log(chalk.dim(`  Account: ${claims.email}`));
     return true;
   } catch (err) {
@@ -120,7 +128,7 @@ async function loginWithBrowser(provider, store, oauth) {
 // ---------------------------------------------------------------------------
 
 async function loginWithDeviceCode(provider, store, oauth) {
-  const { requestDeviceCode, pollDeviceToken, parseJwtClaims, OAUTH_PROVIDERS } = oauth;
+  const { requestDeviceCode, pollDeviceToken, exchangeIdTokenForApiKey, parseJwtClaims, OAUTH_PROVIDERS } = oauth;
 
   const cfg = OAUTH_PROVIDERS[provider];
   const spinner = ora('Requesting device code...').start();
@@ -137,25 +145,30 @@ async function loginWithDeviceCode(provider, store, oauth) {
     const pollSpinner = ora('Waiting for authorization...').start();
     const tokens = await pollDeviceToken(provider, device.deviceAuthId, device.userCode, device.interval);
 
-    pollSpinner.text = 'Storing credentials...';
-
     const claims = parseJwtClaims(tokens.idToken || tokens.accessToken);
-    const accountId = claims?.['https://api.openai.com/auth']?.chatgpt_account_id
-      || claims?.['https://api.openai.com/auth']?.organization_id
-      || undefined;
+
+    let apiKey;
+    if (provider === 'openai' && tokens.idToken) {
+      pollSpinner.text = 'Obtaining API key from subscription...';
+      try {
+        apiKey = await exchangeIdTokenForApiKey(tokens.idToken);
+      } catch (err) {
+        console.log(chalk.yellow(`  API key exchange failed: ${err.message}`));
+      }
+    }
 
     store.setProviderCredentials(provider, {
       type: 'oauth',
+      apiKey: apiKey || undefined,
       token: tokens.accessToken,
+      idToken: tokens.idToken,
       refreshToken: tokens.refreshToken,
       expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
       tokenEndpoint: cfg.tokenEndpoint,
       clientId: cfg.clientId,
-      accountId,
-      subscriptionBaseUrl: cfg.subscriptionBaseUrl || undefined,
     });
 
-    pollSpinner.succeed(`Signed in to ${provider}`);
+    pollSpinner.succeed(`Signed in to ${provider}${apiKey ? ' (API key obtained)' : ''}`);
     if (claims.email) console.log(chalk.dim(`  Account: ${claims.email}`));
     return true;
   } catch (err) {

@@ -73,8 +73,10 @@ function css() {
 
     .chat-main{display:flex;flex-direction:column;height:100%;min-height:0}
     .msgs{flex:1;overflow:auto;padding:8px;min-height:0}
-    .msg{padding:7px 8px;border-radius:8px;margin-bottom:6px;white-space:pre-wrap}
-    .u{background:#17365f}.a{background:#1c3f30}.e{background:#5a2230}
+    .msg{padding:7px 8px;border-radius:8px;margin-bottom:6px;white-space:pre-wrap;max-width:85%}
+    .u{background:#1a3a6a;margin-left:auto;text-align:right;color:#d4e4ff}
+    .a{background:transparent;padding-left:0;margin-right:auto}
+    .e{background:#5a2230}
     .composer{padding:8px;border-top:1px solid #233b6b;display:grid;grid-template-columns:1fr auto;gap:8px;flex:0 0 auto;background:#101a34}
 
     input,select,textarea{background:#0e1834;border:1px solid #2e487a;color:#fff;border-radius:8px;padding:7px}
@@ -308,7 +310,7 @@ function drawMessages() {
   const box = $('msgs');
   box.innerHTML = state.messages
     .slice(-80)
-    .map((m) => `<div class="msg ${m.role === 'assistant' ? 'a' : 'u'}"><b>${m.role}:</b> ${esc(m.content || '')}</div>`)
+    .map((m) => `<div class="msg ${m.role === 'assistant' ? 'a' : 'u'}">${esc(m.content || '')}</div>`)
     .join('');
   box.scrollTop = box.scrollHeight;
 }
