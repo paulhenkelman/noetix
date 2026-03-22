@@ -172,14 +172,17 @@ export async function exchangeCodeForTokens(provider, code, codeVerifier) {
  * This is the critical second step after OAuth login — the resulting
  * API key works at api.openai.com/v1 (no Cloudflare issues).
  */
-export async function exchangeIdTokenForApiKey(idToken) {
-  const body = new URLSearchParams({
+export async function exchangeIdTokenForApiKey(idToken, organizationId) {
+  const params = {
     grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
     subject_token_type: 'urn:ietf:params:oauth:token-type:id_token',
     subject_token: idToken,
     requested_token: 'openai-api-key',
-  }).toString();
+    client_id: OAUTH_PROVIDERS.openai.clientId,
+  };
+  if (organizationId) params.organization_id = organizationId;
 
+  const body = new URLSearchParams(params).toString();
   const resp = await httpsPost(OAUTH_PROVIDERS.openai.tokenEndpoint, body);
   return resp.api_key || resp.access_token || resp.token;
 }

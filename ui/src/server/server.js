@@ -614,7 +614,7 @@ app.get('/v1/auth/oauth/start', (req, res) => {
       let apiKey;
       if (flow.provider === 'openai' && tokens.idToken) {
         try {
-          apiKey = await exchangeIdTokenForApiKey(tokens.idToken);
+          apiKey = await exchangeIdTokenForApiKey(tokens.idToken, config.llmOrganizationId);
         } catch (err) {
           console.error(`[server] API key exchange failed: ${err.message}`);
         }

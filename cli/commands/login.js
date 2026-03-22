@@ -56,7 +56,7 @@ function openBrowser(url) {
 // Browser OAuth PKCE flow
 // ---------------------------------------------------------------------------
 
-async function loginWithBrowser(provider, store, oauth) {
+async function loginWithBrowser(provider, store, oauth, organizationId) {
   const { buildAuthorizationUrl, exchangeCodeForTokens, exchangeIdTokenForApiKey, parseJwtClaims, OAUTH_PROVIDERS } = oauth;
   const { startCallbackServer } = await loadCallbackServer();
 
@@ -94,7 +94,7 @@ async function loginWithBrowser(provider, store, oauth) {
     if (provider === 'openai' && tokens.idToken) {
       spinner.text = 'Obtaining API key from subscription...';
       try {
-        apiKey = await exchangeIdTokenForApiKey(tokens.idToken);
+        apiKey = await exchangeIdTokenForApiKey(tokens.idToken, organizationId);
       } catch (err) {
         console.log(chalk.yellow(`  API key exchange failed: ${err.message}`));
         console.log(chalk.dim(`  Falling back to access token (may require chatgpt.com endpoint)`));
@@ -127,7 +127,7 @@ async function loginWithBrowser(provider, store, oauth) {
 // Device code flow (headless / SSH)
 // ---------------------------------------------------------------------------
 
-async function loginWithDeviceCode(provider, store, oauth) {
+async function loginWithDeviceCode(provider, store, oauth, organizationId) {
   const { requestDeviceCode, pollDeviceToken, exchangeIdTokenForApiKey, parseJwtClaims, OAUTH_PROVIDERS } = oauth;
 
   const cfg = OAUTH_PROVIDERS[provider];
@@ -151,7 +151,7 @@ async function loginWithDeviceCode(provider, store, oauth) {
     if (provider === 'openai' && tokens.idToken) {
       pollSpinner.text = 'Obtaining API key from subscription...';
       try {
-        apiKey = await exchangeIdTokenForApiKey(tokens.idToken);
+        apiKey = await exchangeIdTokenForApiKey(tokens.idToken, organizationId);
       } catch (err) {
         console.log(chalk.yellow(`  API key exchange failed: ${err.message}`));
       }
@@ -217,13 +217,17 @@ export async function login(options) {
   const oauth = await loadOAuthPKCE();
   const hasOAuth = !!oauth.OAUTH_PROVIDERS[provider];
 
+  // Read organization_id from noetix.config
+  const noetixCfg = readNoetixConfig(process.cwd());
+  const organizationId = noetixCfg?.data?.llm?.organization_id || '';
+
   // If --device-auth flag, go straight to device code flow
   if (options.deviceAuth) {
     if (!oauth.OAUTH_PROVIDERS[provider]?.deviceAuthEndpoint) {
       console.log(chalk.red(`  Device code flow is not supported for ${provider}.`));
       return;
     }
-    const ok = await loginWithDeviceCode(provider, store, oauth);
+    const ok = await loginWithDeviceCode(provider, store, oauth, organizationId);
     if (ok) updateConfig(provider, 'oauth');
     console.log('');
     return;
@@ -250,10 +254,10 @@ export async function login(options) {
   let ok = false;
 
   if (authMethod === 'browser') {
-    ok = await loginWithBrowser(provider, store, oauth);
+    ok = await loginWithBrowser(provider, store, oauth, organizationId);
     if (ok) updateConfig(provider, 'oauth');
   } else if (authMethod === 'device') {
-    ok = await loginWithDeviceCode(provider, store, oauth);
+    ok = await loginWithDeviceCode(provider, store, oauth, organizationId);
     if (ok) updateConfig(provider, 'oauth');
   } else if (authMethod === 'api_key') {
     const providerName = provider === 'openai' ? 'OpenAI' : 'Anthropic';

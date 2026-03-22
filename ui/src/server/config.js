@@ -102,6 +102,7 @@ const config = {
   llmApiKey: process.env.LLM_API_KEY || noetix.llm?.api_key || '',
   llmAuthToken: process.env.LLM_AUTH_TOKEN || '',
   llmBaseUrl: process.env.LLM_BASE_URL || noetix.llm?.base_url || '',
+  llmOrganizationId: process.env.LLM_ORGANIZATION_ID || noetix.llm?.organization_id || '',
   llmReasoningEffort: noetix.llm?.reasoning_effort || 'high',
   llmMaxTokens: noetix.llm?.max_tokens || 16384,
   llmTemperature: noetix.llm?.temperature ?? 0.0,
