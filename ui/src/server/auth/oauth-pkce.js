@@ -299,19 +299,20 @@ export async function fetchProviderModels(provider, accessToken) {
       Authorization: `Bearer ${accessToken}`,
     });
     if (resp?.data) {
-      const EXCLUDE = /audio|transcribe|tts|realtime|image|search|diarize|deep-research|instruct|gpt-3/;
+      // Exclude by product category (stable categories that aren't chat models)
+      const NON_CHAT = /audio|transcribe|tts|realtime|image|search|diarize|deep-research|instruct|embed|gpt-3|whisper|dall|davinci|babbage|text-/;
+      // Drop dated snapshots (e.g. gpt-5.4-2026-03-05) — aliases are sufficient
       const DATED = /-20\d\d-\d\d-\d\d$/;
-      const LEGACY_GPT4 = /^gpt-4($|-0|-turbo|-1106)/;
 
       return resp.data
-        .map(m => m.id)
-        .filter(id =>
-          /^(gpt-[45]|o[1-9])/.test(id)
-          && !EXCLUDE.test(id)
-          && !DATED.test(id)
-          && !LEGACY_GPT4.test(id)
+        .filter(m =>
+          /^(gpt-[45]|o[1-9])/.test(m.id)
+          && !NON_CHAT.test(m.id)
+          && !DATED.test(m.id)
         )
-        .sort();
+        // Sort by creation date (newest first) so the dropdown shows current models on top
+        .sort((a, b) => (b.created || 0) - (a.created || 0))
+        .map(m => m.id);
     }
   }
   return [];
