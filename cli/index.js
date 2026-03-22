@@ -2,6 +2,7 @@
 
 import { Command } from 'commander';
 import { init } from './commands/init.js';
+import { login, logout } from './commands/login.js';
 import { start } from './commands/start.js';
 import { stop } from './commands/stop.js';
 import { status } from './commands/status.js';
@@ -25,6 +26,18 @@ program
   .option('--backend-port <port>', 'Backend port')
   .option('--vite-port <port>', 'Frontend dev port')
   .action(init);
+
+program
+  .command('login')
+  .description('Authenticate with LLM provider')
+  .option('-p, --provider <name>', 'Provider (openai, anthropic)')
+  .action(login);
+
+program
+  .command('logout')
+  .description('Remove stored credentials')
+  .option('-p, --provider <name>', 'Provider to clear (or "all")')
+  .action(logout);
 
 program
   .command('start [service]')

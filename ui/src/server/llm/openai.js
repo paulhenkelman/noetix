@@ -8,6 +8,8 @@ export class OpenAIProvider {
   constructor(config) {
     this.model = config.llmModel;
     this.apiKey = config.llmApiKey;
+    this.authToken = config.llmAuthToken;
+    this.tokenGetter = config.llmTokenGetter;   // async () => string
     this.baseUrl = config.llmBaseUrl || undefined;
     this.maxTokens = config.llmMaxTokens || 16384;
     this.temperature = config.llmTemperature ?? 0.0;
@@ -18,8 +20,16 @@ export class OpenAIProvider {
   async _getClient() {
     if (!this._client) {
       const { default: OpenAI } = await import('openai');
+      // OpenAI SDK accepts string | (() => Promise<string>) for apiKey.
+      // Both API keys and OAuth tokens are sent as Authorization: Bearer.
+      let apiKeyParam;
+      if (this.tokenGetter) {
+        apiKeyParam = this.tokenGetter;
+      } else {
+        apiKeyParam = this.apiKey || this.authToken || undefined;
+      }
       this._client = new OpenAI({
-        apiKey: this.apiKey || undefined,
+        apiKey: apiKeyParam,
         baseURL: this.baseUrl || undefined,
       });
     }

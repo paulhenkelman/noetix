@@ -8,6 +8,8 @@ export class AnthropicProvider {
   constructor(config) {
     this.model = config.llmModel;
     this.apiKey = config.llmApiKey;
+    this.authToken = config.llmAuthToken;
+    this.tokenGetter = config.llmTokenGetter;   // async () => string
     this.baseUrl = config.llmBaseUrl || undefined;
     this.maxTokens = config.llmMaxTokens || 16384;
     this.temperature = config.llmTemperature ?? 0.0;
@@ -18,10 +20,15 @@ export class AnthropicProvider {
   async _getClient() {
     if (!this._client) {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      this._client = new Anthropic({
-        apiKey: this.apiKey || undefined,
-        baseURL: this.baseUrl || undefined,
-      });
+      // Anthropic SDK: apiKey → X-Api-Key header; authToken → Authorization: Bearer header
+      const opts = { baseURL: this.baseUrl || undefined };
+      if (this.authToken || this.tokenGetter) {
+        const token = this.tokenGetter ? await this.tokenGetter() : this.authToken;
+        opts.authToken = token;
+      } else {
+        opts.apiKey = this.apiKey || undefined;
+      }
+      this._client = new Anthropic(opts);
     }
     return this._client;
   }

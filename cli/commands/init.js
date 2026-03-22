@@ -211,6 +211,9 @@ export async function init(options) {
   if (config.llmModel) {
     noetixConfig = noetixConfig.replace(/^model = .*$/m, `model = "${config.llmModel}"`);
   }
+  if (config.llmAuthMethod) {
+    noetixConfig = noetixConfig.replace(/^auth_method = .*$/m, `auth_method = "${config.llmAuthMethod}"`);
+  }
   if (config.llmApiKey) {
     noetixConfig = noetixConfig.replace(/^api_key = ""$/m, `api_key = "${config.llmApiKey}"`);
   }
@@ -379,14 +382,28 @@ async function checkLLMProvider(auto = false, config = {}) {
   config.llmProvider = provider;
 
   if (provider === 'openai' || provider === 'anthropic') {
-    const providerName = provider === 'openai' ? 'OpenAI' : 'Anthropic';
-    const apiKey = auto ? '' : await password({
-      message: `${providerName} API key (or press Enter to configure later)`,
-      mask: '*',
+    // Authentication method
+    const authMethod = auto ? 'api_key' : await select({
+      message: 'Authentication method',
+      choices: [
+        { name: 'API key', value: 'api_key' },
+        { name: 'OAuth token (run `noetix login` after init)', value: 'oauth' },
+      ],
     });
-    config.llmApiKey = apiKey || '';
-    if (!apiKey) {
-      console.log(chalk.dim(`  Set API key later in noetix.config [llm] section`));
+    config.llmAuthMethod = authMethod;
+
+    if (authMethod === 'api_key') {
+      const providerName = provider === 'openai' ? 'OpenAI' : 'Anthropic';
+      const apiKey = auto ? '' : await password({
+        message: `${providerName} API key (or press Enter to configure later)`,
+        mask: '*',
+      });
+      config.llmApiKey = apiKey || '';
+      if (!apiKey) {
+        console.log(chalk.dim(`  Set API key later in noetix.config [llm] section`));
+      }
+    } else {
+      console.log(chalk.dim(`  Run \`noetix login\` after init to provide your OAuth token`));
     }
   } else if (provider === 'ollama' || provider === 'vllm') {
     const defaultUrl = provider === 'ollama' ? 'http://localhost:11434' : 'http://localhost:8000/v1';

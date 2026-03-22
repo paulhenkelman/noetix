@@ -394,7 +394,18 @@ async function sendMessage() {
       drawMessages();
     }
   } catch (e) {
-    state.messages.push({ role: 'assistant', content: `Error: ${e.message}` });
+    const msg = e.message || '';
+    if (/credentials|apiKey|api_key|OPENAI_API_KEY|ANTHROPIC_API_KEY|auth.*token|401/i.test(msg)) {
+      // Auth failure — show login overlay
+      try {
+        const auth = await api('/v1/auth/status');
+        showLoginOverlay(auth.provider, auth.method);
+      } catch {
+        showLoginOverlay('openai', 'oauth');
+      }
+      return;
+    }
+    state.messages.push({ role: 'assistant', content: `Error: ${msg}` });
     drawMessages();
   }
 
@@ -1170,8 +1181,59 @@ async function loadLibrary() {
   if (state.tab === 'library' && $('tiles')) drawTiles();
 }
 
-async function bootstrap() {
-  hydrate();
+function showLoginOverlay(provider, method) {
+  const isOauth = method === 'oauth';
+  const providerName = provider === 'openai' ? 'OpenAI' : provider === 'anthropic' ? 'Anthropic' : provider;
+  $('app').innerHTML = `${css()}
+  <div class="modal-overlay">
+    <div class="modal" style="width:400px">
+      <h3>Sign in to ${esc(providerName)}</h3>
+      <p style="font-size:13px;color:#8899bb;margin:0 0 16px 0">
+        ${isOauth
+          ? 'Paste your OAuth / bearer token below.'
+          : 'Enter your API key below.'}
+      </p>
+      <label>${isOauth ? 'Bearer token' : 'API key'}</label>
+      <input type="password" id="login-token" placeholder="${isOauth ? 'sk-ant-oat01-...' : 'sk-...'}" autocomplete="off" />
+      <div class="modal-actions">
+        <button class="primary" id="login-submit">Sign in</button>
+      </div>
+      <p id="login-error" style="color:#e05050;font-size:12px;margin:8px 0 0 0;display:none"></p>
+    </div>
+  </div>`;
+  $('login-token').focus();
+
+  async function doLogin() {
+    const val = $('login-token').value.trim();
+    if (!val) return;
+    $('login-submit').disabled = true;
+    $('login-submit').textContent = 'Signing in...';
+    try {
+      const body = isOauth
+        ? { method: 'oauth', token: val, provider }
+        : { method: 'api_key', apiKey: val, provider };
+      const r = await fetch(`${API_BASE}/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error(j.error || 'Login failed');
+      // Success — proceed with bootstrap
+      await doBootstrap();
+    } catch (e) {
+      $('login-error').textContent = e.message;
+      $('login-error').style.display = 'block';
+      $('login-submit').disabled = false;
+      $('login-submit').textContent = 'Sign in';
+    }
+  }
+
+  $('login-submit').onclick = doLogin;
+  $('login-token').onkeydown = (e) => { if (e.key === 'Enter') doLogin(); };
+}
+
+async function doBootstrap() {
   state.kbs = await api('/v1/knowledge-bases');
   try { state.kbDeps = await api('/v1/knowledge-bases/dependencies'); } catch { state.kbDeps = {}; }
   state.sessions = (await api('/v1/chat/sessions')).items || [];
@@ -1198,6 +1260,21 @@ async function bootstrap() {
   }
   renderShell();
   switchTab(state.tab);
+}
+
+async function bootstrap() {
+  hydrate();
+  // Check auth before loading data
+  try {
+    const auth = await api('/v1/auth/status');
+    if (!auth.authenticated) {
+      showLoginOverlay(auth.provider, auth.method);
+      return;
+    }
+  } catch {
+    // Auth endpoint unavailable — proceed anyway (older server)
+  }
+  await doBootstrap();
 }
 
 bootstrap().catch((e) => {

@@ -13,6 +13,7 @@ import { detectLiveEndpoint, formatDiagnostics } from './playwright-mcp.js';
 import { AgentRunner } from './agent-runner.js';
 import { MAX_VERIFY_ATTEMPTS, REQUIRES_TOOL_USE, needsVerification, buildCorrectionPrompt, selectBestResponse } from './verify.js';
 import config from './config.js';
+import { getProviderCredentials, setProviderCredentials, clearProviderCredentials } from './auth/credential-store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -423,6 +424,60 @@ app.get('/health', (_req, res) =>
     playwright_mcp_url: PLAYWRIGHT_MCP_URL
   })
 );
+
+// Auth status / login / logout
+app.get('/v1/auth/status', (_req, res) => {
+  const provider = config.llmProvider;
+  const method = config.llmAuthMethod;
+  // If using api_key mode with a key in config/env, auth is fine
+  if (method === 'api_key' && config.llmApiKey) {
+    return res.json({ authenticated: true, provider, method });
+  }
+  // If using oauth mode with env var token, auth is fine
+  if (method === 'oauth' && config.llmAuthToken) {
+    return res.json({ authenticated: true, provider, method });
+  }
+  // Check credential store
+  const creds = getProviderCredentials(provider);
+  if (method === 'oauth' && creds?.token) {
+    return res.json({ authenticated: true, provider, method });
+  }
+  if (method === 'api_key' && creds?.apiKey) {
+    return res.json({ authenticated: true, provider, method });
+  }
+  return res.json({ authenticated: false, provider, method });
+});
+
+app.post('/v1/auth/login', async (req, res) => {
+  const { method, token, apiKey, provider: reqProvider } = req.body || {};
+  const provider = reqProvider || config.llmProvider;
+
+  if (method === 'oauth' || method === 'bearer') {
+    if (!token) return res.status(400).json({ error: 'Token is required' });
+    setProviderCredentials(provider, { type: 'oauth', token });
+  } else {
+    if (!apiKey) return res.status(400).json({ error: 'API key is required' });
+    setProviderCredentials(provider, { type: 'api_key', apiKey });
+  }
+
+  // Reinitialize agent runner with new credentials
+  try {
+    await codex.shutdown();
+    await codex.init();
+    res.json({ ok: true, provider, method: method || 'api_key' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: `Agent restart failed: ${err.message}` });
+  }
+});
+
+app.post('/v1/auth/logout', async (_req, res) => {
+  const provider = config.llmProvider;
+  clearProviderCredentials(provider);
+  try {
+    await codex.shutdown();
+  } catch {}
+  res.json({ ok: true, provider });
+});
 
 // Playwright MCP diagnostics: detect live endpoint and bind status
 app.get('/v1/playwright-mcp/status', async (_req, res) => {

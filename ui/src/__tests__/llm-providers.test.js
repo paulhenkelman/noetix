@@ -71,6 +71,32 @@ describe('OpenAI provider', () => {
     ];
     expect(provider._formatMessages(messages)).toBe(messages);
   });
+
+  it('should store authToken from config', async () => {
+    const { OpenAIProvider } = await import('../server/llm/openai.js');
+    const provider = new OpenAIProvider({
+      llmModel: 'gpt-5.3',
+      llmAuthToken: 'oauth-token-123',
+      llmMaxTokens: 1024,
+      llmTemperature: 0,
+      llmReasoningEffort: 'high',
+    });
+    expect(provider.authToken).toBe('oauth-token-123');
+    expect(provider.apiKey).toBeUndefined();
+  });
+
+  it('should store tokenGetter from config', async () => {
+    const { OpenAIProvider } = await import('../server/llm/openai.js');
+    const getter = async () => 'fresh-token';
+    const provider = new OpenAIProvider({
+      llmModel: 'gpt-5.3',
+      llmTokenGetter: getter,
+      llmMaxTokens: 1024,
+      llmTemperature: 0,
+      llmReasoningEffort: 'high',
+    });
+    expect(provider.tokenGetter).toBe(getter);
+  });
 });
 
 describe('Anthropic provider', () => {
@@ -145,6 +171,32 @@ describe('Anthropic provider', () => {
     const formatted = provider._formatTools(tools);
     expect(formatted[0].input_schema).toEqual(tools[0].inputSchema);
     expect(formatted[0].name).toBe('kb_search');
+  });
+
+  it('should store authToken from config', async () => {
+    const { AnthropicProvider } = await import('../server/llm/anthropic.js');
+    const provider = new AnthropicProvider({
+      llmModel: 'claude-sonnet-4-6-20250514',
+      llmAuthToken: 'sk-ant-oat01-test',
+      llmMaxTokens: 1024,
+      llmTemperature: 0,
+      llmReasoningEffort: 'high',
+    });
+    expect(provider.authToken).toBe('sk-ant-oat01-test');
+    expect(provider.apiKey).toBeUndefined();
+  });
+
+  it('should store tokenGetter from config', async () => {
+    const { AnthropicProvider } = await import('../server/llm/anthropic.js');
+    const getter = async () => 'refreshed-token';
+    const provider = new AnthropicProvider({
+      llmModel: 'claude-sonnet-4-6-20250514',
+      llmTokenGetter: getter,
+      llmMaxTokens: 1024,
+      llmTemperature: 0,
+      llmReasoningEffort: 'high',
+    });
+    expect(provider.tokenGetter).toBe(getter);
   });
 });
 
