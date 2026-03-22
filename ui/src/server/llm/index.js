@@ -24,6 +24,10 @@ export async function createProvider(config) {
         } else if (creds.token) {
           resolved.llmAuthToken = creds.token;
           resolved.llmTokenGetter = () => getValidToken(provider);
+          // Pass account ID for subscription routing
+          if (creds.accountId) resolved.llmAccountId = creds.accountId;
+          // Mark as subscription mode (no Platform API key)
+          resolved._useResponsesApi = true;
         }
       }
     }
@@ -35,6 +39,11 @@ export async function createProvider(config) {
 
   switch (provider) {
     case 'openai': {
+      // Subscription OAuth without API key → use Responses API at chatgpt.com
+      if (resolved._useResponsesApi) {
+        const { OpenAIResponsesProvider } = await import('./openai-responses.js');
+        return new OpenAIResponsesProvider(resolved);
+      }
       const { OpenAIProvider } = await import('./openai.js');
       return new OpenAIProvider(resolved);
     }

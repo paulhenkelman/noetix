@@ -630,6 +630,7 @@ app.get('/v1/auth/oauth/start', (req, res) => {
         expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
         tokenEndpoint: cfg.tokenEndpoint,
         clientId: cfg.clientId,
+        accountId: claims?.['https://api.openai.com/auth']?.chatgpt_account_id || undefined,
       });
 
       // Fetch and cache available models
