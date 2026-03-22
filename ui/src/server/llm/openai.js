@@ -11,6 +11,8 @@ export class OpenAIProvider {
     this.authToken = config.llmAuthToken;
     this.tokenGetter = config.llmTokenGetter;   // async () => string
     this.baseUrl = config.llmBaseUrl || undefined;
+    this.subscriptionBaseUrl = config.llmSubscriptionBaseUrl;
+    this.accountId = config.llmAccountId;
     this.maxTokens = config.llmMaxTokens || 16384;
     this.temperature = config.llmTemperature ?? 0.0;
     this.reasoningEffort = config.llmReasoningEffort || 'high';
@@ -28,10 +30,15 @@ export class OpenAIProvider {
       } else {
         apiKeyParam = this.apiKey || this.authToken || undefined;
       }
-      this._client = new OpenAI({
-        apiKey: apiKeyParam,
-        baseURL: this.baseUrl || undefined,
-      });
+
+      // Subscription OAuth: use chatgpt.com endpoint + account ID header
+      const baseURL = this.baseUrl || this.subscriptionBaseUrl || undefined;
+      const opts = { apiKey: apiKeyParam, baseURL };
+      if (this.accountId) {
+        opts.defaultHeaders = { 'ChatGPT-Account-Id': this.accountId };
+      }
+
+      this._client = new OpenAI(opts);
     }
     return this._client;
   }

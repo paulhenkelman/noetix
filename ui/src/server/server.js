@@ -14,6 +14,8 @@ import { AgentRunner } from './agent-runner.js';
 import { MAX_VERIFY_ATTEMPTS, REQUIRES_TOOL_USE, needsVerification, buildCorrectionPrompt, selectBestResponse } from './verify.js';
 import config from './config.js';
 import { getProviderCredentials, setProviderCredentials, clearProviderCredentials } from './auth/credential-store.js';
+import { buildAuthorizationUrl, exchangeCodeForTokens, parseJwtClaims, OAUTH_PROVIDERS } from './auth/oauth-pkce.js';
+import { startCallbackServer } from './auth/callback-server.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -477,6 +479,87 @@ app.post('/v1/auth/logout', async (_req, res) => {
     await codex.shutdown();
   } catch {}
   res.json({ ok: true, provider });
+});
+
+// OAuth browser flow (PKCE)
+const pendingOAuthFlows = new Map();
+
+app.get('/v1/auth/oauth/start', (req, res) => {
+  const provider = req.query.provider || config.llmProvider;
+  if (!OAUTH_PROVIDERS[provider]) {
+    return res.status(400).json({ error: `No OAuth config for provider: ${provider}` });
+  }
+
+  const { url, codeVerifier, state } = buildAuthorizationUrl(provider);
+
+  // Start callback server to receive the redirect
+  const callback = startCallbackServer(1455);
+  pendingOAuthFlows.set(state, { provider, codeVerifier, callback, startedAt: Date.now() });
+
+  // Auto-cleanup after 3 minutes
+  setTimeout(() => {
+    if (pendingOAuthFlows.has(state)) {
+      pendingOAuthFlows.get(state).callback.close();
+      pendingOAuthFlows.delete(state);
+    }
+  }, 180000);
+
+  // Listen for the callback in the background
+  callback.promise.then(async ({ code, state: returnedState }) => {
+    const flow = pendingOAuthFlows.get(returnedState);
+    if (!flow) return;
+
+    try {
+      const tokens = await exchangeCodeForTokens(flow.provider, code, flow.codeVerifier);
+      const claims = parseJwtClaims(tokens.idToken || tokens.accessToken);
+      const accountId = claims?.['https://api.openai.com/auth']?.chatgpt_account_id
+        || claims?.['https://api.openai.com/auth']?.organization_id
+        || undefined;
+
+      const cfg = OAUTH_PROVIDERS[flow.provider];
+      setProviderCredentials(flow.provider, {
+        type: 'oauth',
+        token: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt: tokens.expiresIn ? Date.now() + tokens.expiresIn * 1000 : undefined,
+        tokenEndpoint: cfg.tokenEndpoint,
+        clientId: cfg.clientId,
+        accountId,
+        subscriptionBaseUrl: cfg.subscriptionBaseUrl || undefined,
+      });
+
+      // Reinitialize agent with new credentials
+      try {
+        await codex.shutdown();
+        await codex.init();
+      } catch {}
+
+      flow.completed = true;
+      flow.email = claims.email;
+    } catch (err) {
+      flow.error = err.message;
+    }
+  }).catch((err) => {
+    const flow = pendingOAuthFlows.get(state);
+    if (flow) flow.error = err.message;
+  });
+
+  res.json({ url, state });
+});
+
+app.get('/v1/auth/oauth/poll', (req, res) => {
+  const { state } = req.query;
+  const flow = pendingOAuthFlows.get(state);
+  if (!flow) return res.json({ completed: false, error: 'Unknown flow' });
+  if (flow.error) {
+    pendingOAuthFlows.delete(state);
+    return res.json({ completed: false, error: flow.error });
+  }
+  if (flow.completed) {
+    pendingOAuthFlows.delete(state);
+    return res.json({ completed: true, email: flow.email });
+  }
+  return res.json({ completed: false });
 });
 
 // Playwright MCP diagnostics: detect live endpoint and bind status

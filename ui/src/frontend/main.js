@@ -1188,21 +1188,71 @@ function showLoginOverlay(provider, method) {
   <div class="modal-overlay">
     <div class="modal" style="width:400px">
       <h3>Sign in to ${esc(providerName)}</h3>
-      <p style="font-size:13px;color:#8899bb;margin:0 0 16px 0">
-        ${isOauth
-          ? 'Paste your OAuth / bearer token below.'
-          : 'Enter your API key below.'}
-      </p>
-      <label>${isOauth ? 'Bearer token' : 'API key'}</label>
-      <input type="password" id="login-token" placeholder="${isOauth ? 'sk-ant-oat01-...' : 'sk-...'}" autocomplete="off" />
+      ${isOauth ? `
+        <button class="primary" id="login-oauth" style="width:100%;padding:10px;font-size:14px;margin-bottom:12px">
+          Sign in with ${esc(providerName)}
+        </button>
+        <p id="login-oauth-status" style="font-size:12px;color:#5bc48a;text-align:center;margin:0 0 8px 0;display:none"></p>
+        <div style="text-align:center;color:#556;font-size:12px;margin:8px 0">or paste a token / API key manually</div>
+      ` : ''}
+      <label>${isOauth ? 'Token or API key' : 'API key'}</label>
+      <input type="password" id="login-token" placeholder="sk-..." autocomplete="off" />
       <div class="modal-actions">
         <button class="primary" id="login-submit">Sign in</button>
       </div>
       <p id="login-error" style="color:#e05050;font-size:12px;margin:8px 0 0 0;display:none"></p>
     </div>
   </div>`;
-  $('login-token').focus();
 
+  // --- OAuth browser flow ---
+  if (isOauth && $('login-oauth')) {
+    $('login-oauth').onclick = async () => {
+      $('login-oauth').disabled = true;
+      $('login-oauth').textContent = 'Opening browser...';
+      $('login-error').style.display = 'none';
+
+      try {
+        const start = await api(`/v1/auth/oauth/start?provider=${provider}`);
+        window.open(start.url, '_blank');
+
+        $('login-oauth').textContent = 'Waiting for sign-in...';
+        const statusEl = $('login-oauth-status');
+        if (statusEl) { statusEl.textContent = 'Complete sign-in in the browser tab that opened.'; statusEl.style.display = 'block'; }
+
+        // Poll for completion
+        const pollInterval = setInterval(async () => {
+          try {
+            const poll = await api(`/v1/auth/oauth/poll?state=${start.state}`);
+            if (poll.completed) {
+              clearInterval(pollInterval);
+              if (statusEl) statusEl.textContent = `Signed in${poll.email ? ' as ' + poll.email : ''}`;
+              await doBootstrap();
+            } else if (poll.error) {
+              clearInterval(pollInterval);
+              throw new Error(poll.error);
+            }
+          } catch (e) {
+            clearInterval(pollInterval);
+            $('login-error').textContent = e.message;
+            $('login-error').style.display = 'block';
+            $('login-oauth').disabled = false;
+            $('login-oauth').textContent = `Sign in with ${providerName}`;
+            if (statusEl) statusEl.style.display = 'none';
+          }
+        }, 2000);
+
+        // Stop polling after 3 minutes
+        setTimeout(() => clearInterval(pollInterval), 180000);
+      } catch (e) {
+        $('login-error').textContent = e.message;
+        $('login-error').style.display = 'block';
+        $('login-oauth').disabled = false;
+        $('login-oauth').textContent = `Sign in with ${providerName}`;
+      }
+    };
+  }
+
+  // --- Manual token / API key ---
   async function doLogin() {
     const val = $('login-token').value.trim();
     if (!val) return;
@@ -1219,7 +1269,6 @@ function showLoginOverlay(provider, method) {
       });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error || 'Login failed');
-      // Success — proceed with bootstrap
       await doBootstrap();
     } catch (e) {
       $('login-error').textContent = e.message;

@@ -31,6 +31,7 @@ program
   .command('login')
   .description('Authenticate with LLM provider')
   .option('-p, --provider <name>', 'Provider (openai, anthropic)')
+  .option('--device-auth', 'Use device code flow (headless / SSH)')
   .action(login);
 
 program

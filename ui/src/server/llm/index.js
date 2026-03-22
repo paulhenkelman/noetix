@@ -20,6 +20,9 @@ export async function createProvider(config) {
       if (creds?.type === 'oauth' && creds.token) {
         resolved.llmAuthToken = creds.token;
         resolved.llmTokenGetter = () => getValidToken(provider);
+        // Subscription routing metadata (OpenAI chatgpt.com endpoint)
+        if (creds.accountId) resolved.llmAccountId = creds.accountId;
+        if (creds.subscriptionBaseUrl) resolved.llmSubscriptionBaseUrl = creds.subscriptionBaseUrl;
       }
     }
   } else if (!resolved.llmApiKey) {
