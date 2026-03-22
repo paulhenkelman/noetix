@@ -63,12 +63,17 @@ export class OpenAIProvider {
   async *chat(messages, tools, options = {}) {
     const client = await this._getClient();
 
+    // Newer models (gpt-5.x, o-series) use max_completion_tokens; legacy use max_tokens
+    const usesCompletionTokens = /^(gpt-5|o[1-9])/.test(this.model);
+
     const params = {
       model: this.model,
       messages: this._formatMessages(messages),
       stream: true,
-      max_tokens: this.maxTokens,
-      temperature: this.temperature,
+      ...(usesCompletionTokens
+        ? { max_completion_tokens: this.maxTokens }
+        : { max_tokens: this.maxTokens }),
+      ...(!usesCompletionTokens ? { temperature: this.temperature } : {}),
       ...mapEffort('openai', this.reasoningEffort),
     };
 
