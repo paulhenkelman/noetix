@@ -462,13 +462,15 @@ app.post('/v1/auth/login', async (req, res) => {
     setProviderCredentials(provider, { type: 'api_key', apiKey });
   }
 
-  // Fetch and cache available models
-  const authToken = apiKey || token;
-  if (provider === 'openai' && authToken) {
-    try {
-      const modelIds = await fetchProviderModels('openai', authToken);
-      if (modelIds.length) setProviderCredentials(provider, { availableModels: modelIds });
-    } catch {}
+  // Fetch and cache available models (try API key first, then OAuth token, then config key)
+  if (provider === 'openai') {
+    const keysToTry = [apiKey, config.llmApiKey, token].filter(Boolean);
+    for (const key of keysToTry) {
+      try {
+        const modelIds = await fetchProviderModels('openai', key);
+        if (modelIds.length) { setProviderCredentials(provider, { availableModels: modelIds }); break; }
+      } catch {}
+    }
   }
 
   // Reinitialize agent runner with new credentials
@@ -500,28 +502,33 @@ app.get('/v1/models', async (_req, res) => {
   const activeProvider = config.llmProvider;
   const activeModel = codex.model;
 
-  // OpenAI — use cached models from credential store (populated at login)
+  // OpenAI — use cached models from credential store, or fetch live
   const openaiCreds = getProviderCredentials('openai');
-  if (openaiCreds) {
-    let modelIds = openaiCreds.availableModels;
+  let openaiModelIds = openaiCreds?.availableModels;
 
-    // If no cached models, try fetching now
-    if (!modelIds?.length) {
-      const token = openaiCreds.apiKey || openaiCreds.token;
-      if (token) {
-        try {
-          modelIds = await fetchProviderModels('openai', token);
-          if (modelIds.length) {
-            setProviderCredentials('openai', { availableModels: modelIds });
-          }
-        } catch {}
-      }
+  if (!openaiModelIds?.length) {
+    // Try any available key: credential store API key, config API key, OAuth token
+    const keysToTry = [
+      openaiCreds?.apiKey,
+      config.llmApiKey,
+      openaiCreds?.token,
+    ].filter(Boolean);
+
+    for (const key of keysToTry) {
+      try {
+        openaiModelIds = await fetchProviderModels('openai', key);
+        if (openaiModelIds.length) {
+          // Cache for future requests
+          if (openaiCreds) setProviderCredentials('openai', { availableModels: openaiModelIds });
+          break;
+        }
+      } catch {}
     }
+  }
 
-    if (modelIds?.length) {
-      for (const id of modelIds) {
-        models.push({ provider: 'openai', model: id, active: activeProvider === 'openai' && activeModel === id });
-      }
+  if (openaiModelIds?.length) {
+    for (const id of openaiModelIds) {
+      models.push({ provider: 'openai', model: id, active: activeProvider === 'openai' && activeModel === id });
     }
   }
 
@@ -635,16 +642,14 @@ app.get('/v1/auth/oauth/start', (req, res) => {
         accountId: claims?.['https://api.openai.com/auth']?.chatgpt_account_id || undefined,
       });
 
-      // Fetch and cache available models
-      const authToken = apiKey || tokens.accessToken;
-      if (flow.provider === 'openai' && authToken) {
-        try {
-          const modelIds = await fetchProviderModels('openai', authToken);
-          if (modelIds.length) {
-            setProviderCredentials('openai', { availableModels: modelIds });
-          }
-        } catch (err) {
-          console.error(`[server] Model fetch after OAuth failed: ${err.message}`);
+      // Fetch and cache available models (try API key, config key, then OAuth token)
+      if (flow.provider === 'openai') {
+        const keysToTry = [apiKey, config.llmApiKey, tokens.accessToken].filter(Boolean);
+        for (const key of keysToTry) {
+          try {
+            const modelIds = await fetchProviderModels('openai', key);
+            if (modelIds.length) { setProviderCredentials('openai', { availableModels: modelIds }); break; }
+          } catch {}
         }
       }
 

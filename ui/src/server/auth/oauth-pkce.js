@@ -299,9 +299,18 @@ export async function fetchProviderModels(provider, accessToken) {
       Authorization: `Bearer ${accessToken}`,
     });
     if (resp?.data) {
+      const EXCLUDE = /audio|transcribe|tts|realtime|image|search|diarize|deep-research|instruct|gpt-3/;
+      const DATED = /-20\d\d-\d\d-\d\d$/;
+      const LEGACY_GPT4 = /^gpt-4($|-0|-turbo|-1106)/;
+
       return resp.data
         .map(m => m.id)
-        .filter(id => /^(gpt-|o[1-9]|chatgpt-)/.test(id))
+        .filter(id =>
+          /^(gpt-[45]|o[1-9])/.test(id)
+          && !EXCLUDE.test(id)
+          && !DATED.test(id)
+          && !LEGACY_GPT4.test(id)
+        )
         .sort();
     }
   }

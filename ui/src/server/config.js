@@ -99,7 +99,7 @@ const config = {
   llmProvider: process.env.LLM_PROVIDER || noetix.llm?.provider || 'openai',
   llmModel: process.env.LLM_MODEL || noetix.llm?.model || 'gpt-5.3',
   llmAuthMethod: process.env.LLM_AUTH_METHOD || noetix.llm?.auth_method || 'api_key',
-  llmApiKey: process.env.LLM_API_KEY || noetix.llm?.api_key || '',
+  llmApiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || noetix.llm?.api_key || '',
   llmAuthToken: process.env.LLM_AUTH_TOKEN || '',
   llmBaseUrl: process.env.LLM_BASE_URL || noetix.llm?.base_url || '',
   llmOrganizationId: process.env.LLM_ORGANIZATION_ID || noetix.llm?.organization_id || '',
