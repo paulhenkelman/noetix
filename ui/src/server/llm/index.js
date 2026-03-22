@@ -11,30 +11,21 @@ export async function createProvider(config) {
   const provider = config.llmProvider;
   let resolved = { ...config };
 
-  if (config.llmAuthMethod === 'oauth') {
-    // OAuth mode: env var takes precedence, then credential store
-    if (resolved.llmAuthToken) {
-      // Already set from LLM_AUTH_TOKEN env var — use as-is
-    } else {
-      const creds = getProviderCredentials(provider);
-      if (creds?.type === 'oauth') {
-        // Prefer exchanged API key (works at api.openai.com, no Cloudflare)
-        if (creds.apiKey) {
-          resolved.llmApiKey = creds.apiKey;
-        } else if (creds.token) {
-          resolved.llmAuthToken = creds.token;
-          resolved.llmTokenGetter = () => getValidToken(provider);
-          // Pass account ID for subscription routing
-          if (creds.accountId) resolved.llmAccountId = creds.accountId;
-          // Mark as subscription mode (no Platform API key)
-          resolved._useResponsesApi = true;
-        }
+  // Resolve credentials from store (regardless of auth_method setting)
+  if (!resolved.llmApiKey && !resolved.llmAuthToken) {
+    const creds = getProviderCredentials(provider);
+    if (creds) {
+      if (creds.apiKey) {
+        // API key — works at api.openai.com (standard endpoint)
+        resolved.llmApiKey = creds.apiKey;
+      } else if (creds.type === 'oauth' && creds.token) {
+        // OAuth access token — route through subscription endpoint
+        resolved.llmAuthToken = creds.token;
+        resolved.llmTokenGetter = () => getValidToken(provider);
+        if (creds.accountId) resolved.llmAccountId = creds.accountId;
+        resolved._useResponsesApi = true;
       }
     }
-  } else if (!resolved.llmApiKey) {
-    // API key mode: fallback to credential store if no key in config/env
-    const creds = getProviderCredentials(provider);
-    if (creds?.apiKey) resolved.llmApiKey = creds.apiKey;
   }
 
   switch (provider) {
