@@ -14,7 +14,7 @@ import { AgentRunner } from './agent-runner.js';
 import { MAX_VERIFY_ATTEMPTS, REQUIRES_TOOL_USE, needsVerification, buildCorrectionPrompt, selectBestResponse } from './verify.js';
 import config from './config.js';
 import { getProviderCredentials, setProviderCredentials, clearProviderCredentials } from './auth/credential-store.js';
-import { buildAuthorizationUrl, exchangeCodeForTokens, exchangeIdTokenForApiKey, parseJwtClaims, OAUTH_PROVIDERS } from './auth/oauth-pkce.js';
+import { buildAuthorizationUrl, exchangeCodeForTokens, exchangeIdTokenForApiKey, parseJwtClaims, fetchProviderModels, OAUTH_PROVIDERS } from './auth/oauth-pkce.js';
 import { startCallbackServer } from './auth/callback-server.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -462,6 +462,15 @@ app.post('/v1/auth/login', async (req, res) => {
     setProviderCredentials(provider, { type: 'api_key', apiKey });
   }
 
+  // Fetch and cache available models
+  const authToken = apiKey || token;
+  if (provider === 'openai' && authToken) {
+    try {
+      const modelIds = await fetchProviderModels('openai', authToken);
+      if (modelIds.length) setProviderCredentials(provider, { availableModels: modelIds });
+    } catch {}
+  }
+
   // Reinitialize agent runner with new credentials
   try {
     await codex.restart();
@@ -481,10 +490,6 @@ app.post('/v1/auth/logout', async (_req, res) => {
 });
 
 // Model listing and selection
-const OPENAI_MODELS = [
-  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o', 'gpt-4o-mini',
-  'o3', 'o3-mini', 'o4-mini',
-];
 const ANTHROPIC_MODELS = [
   'claude-sonnet-4-6-20250514', 'claude-opus-4-6-20250514',
   'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250514',
@@ -495,41 +500,32 @@ app.get('/v1/models', async (_req, res) => {
   const activeProvider = config.llmProvider;
   const activeModel = codex.model;
 
-  // OpenAI — try API query, fall back to curated list
+  // OpenAI — use cached models from credential store (populated at login)
   const openaiCreds = getProviderCredentials('openai');
-  const openaiKey = config.llmApiKey || openaiCreds?.apiKey;
-  const openaiToken = openaiCreds?.token;
-  const hasOpenai = openaiKey || openaiToken;
-  let openaiFromApi = false;
+  if (openaiCreds) {
+    let modelIds = openaiCreds.availableModels;
 
-  if (hasOpenai) {
-    try {
-      const resp = await fetch('https://api.openai.com/v1/models', {
-        headers: { Authorization: `Bearer ${openaiKey || openaiToken}` },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const ids = data.data
-          .map(m => m.id)
-          .filter(id => /^(gpt-|o[1-9]|chatgpt-)/.test(id))
-          .sort();
-        for (const id of ids) {
-          models.push({ provider: 'openai', model: id, active: activeProvider === 'openai' && activeModel === id });
-        }
-        openaiFromApi = ids.length > 0;
+    // If no cached models, try fetching now
+    if (!modelIds?.length) {
+      const token = openaiCreds.apiKey || openaiCreds.token;
+      if (token) {
+        try {
+          modelIds = await fetchProviderModels('openai', token);
+          if (modelIds.length) {
+            setProviderCredentials('openai', { availableModels: modelIds });
+          }
+        } catch {}
       }
-    } catch {}
+    }
 
-    // Fallback to curated list if API query failed (e.g. OAuth token lacks scope)
-    if (!openaiFromApi) {
-      for (const id of OPENAI_MODELS) {
+    if (modelIds?.length) {
+      for (const id of modelIds) {
         models.push({ provider: 'openai', model: id, active: activeProvider === 'openai' && activeModel === id });
       }
     }
   }
 
-  // Anthropic — static list, show if we have any credentials
+  // Anthropic — static list (no public list API), show if we have credentials
   const anthropicCreds = getProviderCredentials('anthropic');
   if (anthropicCreds?.apiKey || anthropicCreds?.token || (activeProvider === 'anthropic' && config.llmApiKey)) {
     for (const id of ANTHROPIC_MODELS) {
@@ -635,6 +631,19 @@ app.get('/v1/auth/oauth/start', (req, res) => {
         tokenEndpoint: cfg.tokenEndpoint,
         clientId: cfg.clientId,
       });
+
+      // Fetch and cache available models
+      const authToken = apiKey || tokens.accessToken;
+      if (flow.provider === 'openai' && authToken) {
+        try {
+          const modelIds = await fetchProviderModels('openai', authToken);
+          if (modelIds.length) {
+            setProviderCredentials('openai', { availableModels: modelIds });
+          }
+        } catch (err) {
+          console.error(`[server] Model fetch after OAuth failed: ${err.message}`);
+        }
+      }
 
       // Reinitialize agent with new credentials
       try {

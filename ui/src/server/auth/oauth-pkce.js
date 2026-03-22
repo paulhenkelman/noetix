@@ -19,7 +19,7 @@ export const OAUTH_PROVIDERS = {
     tokenEndpoint: 'https://auth.openai.com/oauth/token',
     clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
     redirectUri: 'http://localhost:1455/auth/callback',
-    scopes: 'openid profile email offline_access',
+    scopes: 'openid profile email offline_access api.model.read',
     extraParams: {
       id_token_add_organizations: 'true',
       codex_cli_simplified_flow: 'true',
@@ -83,6 +83,31 @@ export function buildAuthorizationUrl(provider) {
 // ---------------------------------------------------------------------------
 // HTTP helpers
 // ---------------------------------------------------------------------------
+
+function httpsGet(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const transport = parsed.protocol === 'https:' ? https : http;
+
+    const req = transport.request(parsed, {
+      method: 'GET',
+      headers,
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(data)); } catch { resolve(data); }
+        } else {
+          reject(new Error(`HTTP ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.end();
+  });
+}
 
 function httpsPost(url, body, contentType = 'application/x-www-form-urlencoded') {
   return new Promise((resolve, reject) => {
@@ -250,4 +275,27 @@ export async function pollDeviceToken(provider, deviceAuthId, userCode, interval
   }
 
   throw new Error('Device authorization timed out');
+}
+
+// ---------------------------------------------------------------------------
+// Model discovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch available models from a provider using the given access token.
+ * Returns an array of model ID strings.
+ */
+export async function fetchProviderModels(provider, accessToken) {
+  if (provider === 'openai') {
+    const resp = await httpsGet('https://api.openai.com/v1/models', {
+      Authorization: `Bearer ${accessToken}`,
+    });
+    if (resp?.data) {
+      return resp.data
+        .map(m => m.id)
+        .filter(id => /^(gpt-|o[1-9]|chatgpt-)/.test(id))
+        .sort();
+    }
+  }
+  return [];
 }
