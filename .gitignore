@@ -35,5 +35,11 @@ build/
 .idea/
 .DS_Store
 
+# Credentials and secrets
+credentials.json
+auth.json
+*.pem
+*.key
+
 # Playwright cache
 .cache/
