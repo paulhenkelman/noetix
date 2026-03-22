@@ -78,6 +78,8 @@ export class AgentLoop {
               ? tc.arguments
               : JSON.stringify(tc.arguments),
           },
+          // Preserve Responses API item ID (fc_...) for round-tripping
+          ...(tc._responseItemId ? { _responseItemId: tc._responseItemId } : {}),
         })),
       };
       messages.push(assistantMsg);

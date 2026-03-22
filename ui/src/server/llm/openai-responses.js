@@ -57,9 +57,11 @@ export class OpenAIResponsesProvider {
       } else if (msg.role === 'assistant' && msg.tool_calls) {
         // Assistant tool call results — emit as function_call items
         for (const tc of msg.tool_calls) {
+          // Responses API requires id starting with 'fc' and separate call_id
+          const fcId = tc._responseItemId || tc.id;
           input.push({
             type: 'function_call',
-            id: tc.id,
+            id: fcId,
             call_id: tc.id,
             name: tc.function.name,
             arguments: typeof tc.function.arguments === 'string'
@@ -81,7 +83,6 @@ export class OpenAIResponsesProvider {
       instructions: instructions || 'You are a helpful assistant.',
       store: false,
       stream: true,
-      max_output_tokens: this.maxTokens,
     };
 
     if (this.temperature > 0) body.temperature = this.temperature;
@@ -115,6 +116,7 @@ export class OpenAIResponsesProvider {
           if (event.item?.type === 'function_call') {
             toolCalls[event.output_index] = {
               id: event.item.call_id || event.item.id,
+              responseItemId: event.item.id,  // fc_... ID for Responses API
               name: event.item.name,
               arguments: '',
             };
@@ -138,6 +140,7 @@ export class OpenAIResponsesProvider {
                 id: tc.id,
                 name: tc.name,
                 arguments: parsedArgs,
+                _responseItemId: tc.responseItemId,
               };
               stopReason = StopReason.TOOL_USE;
             }
