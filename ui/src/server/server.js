@@ -891,7 +891,10 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
     });
     res.flushHeaders();
     sseOpen = true;
-    req.on('close', () => { sseOpen = false; });
+    // Use res.on('close') — fires when client drops connection.
+    // req.on('close') in Express 4 also fires when body-parser finishes reading
+    // the request body, which would wrongly mark SSE as closed before any events are sent.
+    res.on('close', () => { sseOpen = false; });
     sseWrite = (event, data) => {
       if (!sseOpen) return;
       try {
