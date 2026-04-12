@@ -1058,7 +1058,11 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
       } catch (err) {
         const threadErrStr = typeof err.message === 'string' ? err.message : JSON.stringify(err.message ?? err);
         const errPayload = errorEnvelope('CODEX_THREAD_FAILED', `Failed to create Codex conversation: ${threadErrStr}`, true);
-        if (wantsSSE && sseOpen) { sseWrite('error', errPayload); res.end(); return; }
+        if (wantsSSE) {
+          if (sseOpen) sseWrite('error', errPayload);
+          try { res.end(); } catch {}
+          return;
+        }
         return res.status(502).json(errPayload);
       }
 
@@ -1098,12 +1102,20 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
           } catch (retryErr) {
             const retryErrStr = typeof retryErr.message === 'string' ? retryErr.message : JSON.stringify(retryErr.message ?? retryErr);
             const errPayload = errorEnvelope('CODEX_TURN_FAILED', `Codex turn failed after retry: ${retryErrStr}`, true);
-            if (wantsSSE && sseOpen) { sseWrite('error', errPayload); res.end(); return; }
+            if (wantsSSE) {
+              if (sseOpen) sseWrite('error', errPayload);
+              try { res.end(); } catch {}
+              return;
+            }
             return res.status(502).json(errPayload);
           }
         } else {
           const errPayload = errorEnvelope('CODEX_TURN_FAILED', `Codex turn failed: ${errStr}`, true);
-          if (wantsSSE && sseOpen) { sseWrite('error', errPayload); res.end(); return; }
+          if (wantsSSE) {
+            if (sseOpen) sseWrite('error', errPayload);
+            try { res.end(); } catch {}
+            return;
+          }
           return res.status(502).json(errPayload);
         }
       }
@@ -1194,9 +1206,9 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
         action_requests: []
       };
 
-      if (wantsSSE && sseOpen) {
-        sseWrite('done', responsePayload);
-        res.end();
+      if (wantsSSE) {
+        if (sseOpen) sseWrite('done', responsePayload);
+        try { res.end(); } catch {}
         return;
       }
       return res.json(responsePayload);
@@ -1215,7 +1227,11 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
       session.updated_at = assistantMessage.created_at;
       persistSessions();
       const payload = { assistant_message: assistantMessage, citations: [], retrieval_summary: { queried_kb_ids: [], top_k: topK }, action_requests: [] };
-      if (wantsSSE && sseOpen) { sseWrite('done', payload); res.end(); return; }
+      if (wantsSSE) {
+        if (sseOpen) sseWrite('done', payload);
+        try { res.end(); } catch {}
+        return;
+      }
       return res.json(payload);
     }
 
@@ -1234,15 +1250,19 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
 
     for (const row of perKb) {
       if (row.result.status < 200 || row.result.status >= 300) {
-        return res.status(row.result.status).json(
-          errorEnvelope(
-            'UPSTREAM_CHAT_ERROR',
-            row.result.data?.detail || `Upstream chat failed for kb ${row.kbId}`,
-            false,
-            row.result.data,
-            row.result.correlationId
-          )
+        const errPayload = errorEnvelope(
+          'UPSTREAM_CHAT_ERROR',
+          row.result.data?.detail || `Upstream chat failed for kb ${row.kbId}`,
+          false,
+          row.result.data,
+          row.result.correlationId
         );
+        if (wantsSSE) {
+          if (sseOpen) sseWrite('error', errPayload);
+          try { res.end(); } catch {}
+          return;
+        }
+        return res.status(row.result.status).json(errPayload);
       }
     }
 
@@ -1293,12 +1313,18 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
     session.updated_at = assistantMessage.created_at;
     persistSessions();
 
-    return res.json({
+    const fallbackPayload = {
       assistant_message: assistantMessage,
       citations,
       retrieval_summary: { queried_kb_ids: kbIds, top_k: topK },
       action_requests: []
-    });
+    };
+    if (wantsSSE) {
+      if (sseOpen) sseWrite('done', fallbackPayload);
+      try { res.end(); } catch {}
+      return;
+    }
+    return res.json(fallbackPayload);
   } catch (err) {
     console.error(`[server] Chat handler error: ${err.stack || err.message || err}`);
     persistSessions();
@@ -1308,7 +1334,12 @@ app.post('/v1/chat/sessions/:sessionId/messages', async (req, res) => {
       true,
       { reason: String(err?.message || err) }
     );
-    if (wantsSSE && sseOpen) { sseWrite('error', errPayload); res.end(); return; }
+    if (wantsSSE) {
+      if (sseOpen) sseWrite('error', errPayload);
+      try { res.end(); } catch {}
+      return;
+    }
+    if (res.headersSent) { try { res.end(); } catch {} return; }
     return res.status(502).json(errPayload);
   }
 });
