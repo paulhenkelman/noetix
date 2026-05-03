@@ -1,4 +1,4 @@
-const API_BASE = typeof __NOETIX_API_BASE__ !== 'undefined' ? __NOETIX_API_BASE__ : 'http://127.0.0.1:8788';
+const API_BASE = typeof __NOETIX_API_BASE__ !== 'undefined' && __NOETIX_API_BASE__ ? __NOETIX_API_BASE__ : location.origin;
 const LS_KEY = 'noetix.chatlite.v2';
 
 const state = {
