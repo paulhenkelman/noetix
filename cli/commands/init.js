@@ -98,14 +98,18 @@ export async function init(options) {
   const mode = options.mode || (auto ? 'full' : await select({
     message: 'Installation mode',
     choices: [
-      { name: 'Full installation      — Noetix UI + Knowledge backend (single machine)', value: 'full' },
-      { name: 'Frontend only          — Noetix UI (connects to remote backend)', value: 'frontend' },
-      { name: 'Backend only           — Knowledge backend (GPU server)', value: 'backend' },
+      { name: 'Full installation  — Backend + UI + Agent MCPs (single-machine deployment)', value: 'full' },
+      { name: 'Back-end           — Backend + UI (data-side server; no agent setup)', value: 'backend' },
+      { name: 'Agent              — MCP servers + Claude Code config (agent-side client)', value: 'agent' },
     ],
   }));
 
-  const needsFrontend = mode === 'full' || mode === 'frontend';
+  // Internal capability flags. Keep the legacy `frontend`-only mode wired so
+  // --mode frontend still works as an advanced override even though the
+  // interactive prompt no longer surfaces it.
   const needsBackend = mode === 'full' || mode === 'backend';
+  const needsFrontend = mode === 'full' || mode === 'backend' || mode === 'frontend';
+  const needsAgent = mode === 'full' || mode === 'agent';
 
   console.log('');
   console.log(chalk.cyan(`Mode: ${mode}`));
@@ -153,7 +157,7 @@ export async function init(options) {
     config.vitePort = options.vitePort || (auto ? String(defaultVite) : await input({ message: 'Frontend dev port', default: String(defaultVite) }));
   }
 
-  if (mode === 'frontend') {
+  if (mode === 'frontend' || mode === 'agent') {
     const defaultBackendUrl = (isUpdate && existingState.backendUrl) ? existingState.backendUrl : 'http://localhost:8001';
     config.backendUrl = options.backendUrl || (auto ? defaultBackendUrl : await input({
       message: 'Backend URL (where the knowledge server is running)',
@@ -162,10 +166,12 @@ export async function init(options) {
     if (!/^https?:\/\//.test(config.backendUrl)) {
       config.backendUrl = `http://${config.backendUrl}`;
     }
-    config.socksProxy = auto ? '' : await input({
-      message: 'SOCKS proxy (leave empty if not needed)',
-      default: '',
-    });
+    if (mode === 'frontend') {
+      config.socksProxy = auto ? '' : await input({
+        message: 'SOCKS proxy (leave empty if not needed)',
+        default: '',
+      });
+    }
   }
 
   if (needsBackend) {
@@ -260,11 +266,20 @@ export async function init(options) {
   }
 
   // =================================================================
+  // Install agent (MCP servers + Claude Code instrumentation)
+  // =================================================================
+
+  if (needsAgent) {
+    await installAgent(installDir, config);
+  }
+
+  // =================================================================
   // Create systemd services
   // =================================================================
 
-  if (process.platform === 'linux') {
+  if (process.platform === 'linux' && (needsFrontend || needsBackend)) {
     await createSystemdServices(installDir, config);
+    await ensureLinger();
   }
 
   // =================================================================
@@ -315,6 +330,7 @@ export async function init(options) {
     backendDeploy: config.backendDeploy,
     uiServiceName: config.uiServiceName,
     backendServiceName: config.backendServiceName,
+    agentInstalled: needsAgent,
     installedAt: new Date().toISOString(),
   };
   fs.writeFileSync(path.join(installDir, '.noetix-state.json'), JSON.stringify(state, null, 2));
@@ -659,4 +675,105 @@ WantedBy=default.target
   console.log(chalk.dim('  Systemd services created. Enable with:'));
   if (needsFrontend) console.log(chalk.dim(`    systemctl --user enable --now ${uiServiceName}`));
   if (needsBackend) console.log(chalk.dim(`    systemctl --user enable --now ${backendServiceName}`));
+}
+
+// -----------------------------------------------------------------
+// Linger (so user-systemd services persist across logout)
+// -----------------------------------------------------------------
+
+async function ensureLinger() {
+  const user = process.env.USER;
+  if (!user) return;
+  try {
+    const out = execSync(`loginctl show-user ${user} --property=Linger 2>/dev/null || true`, { encoding: 'utf-8' });
+    if (out.trim() === 'Linger=yes') return;
+  } catch { /* fall through */ }
+
+  try {
+    execSync(`sudo -n loginctl enable-linger ${user}`, { stdio: 'pipe' });
+    console.log(chalk.green(`  systemd-user linger enabled for ${user}`));
+  } catch {
+    console.log(chalk.yellow(`  Could not auto-enable linger (sudo password may be required).`));
+    console.log(chalk.dim(`  Run: sudo loginctl enable-linger ${user}`));
+    console.log(chalk.dim(`  Without linger, user services stop on logout.`));
+  }
+}
+
+// -----------------------------------------------------------------
+// Agent installation (MCP servers + Claude Code registration)
+// -----------------------------------------------------------------
+
+async function installAgent(installDir, config) {
+  const uiDir = path.join(installDir, 'ui');
+  const kbServerPath = path.join(uiDir, 'src', 'server', 'kb-mcp-server.js');
+  const contentServerPath = path.join(uiDir, 'src', 'server', 'content-mcp-server.js');
+  const downloadsDir = expandHome('~/.cache/noetix-playwright');
+  fs.mkdirSync(downloadsDir, { recursive: true });
+
+  // Ensure MCP server source files exist (copy from CLI package if not)
+  if (!fs.existsSync(kbServerPath) || !fs.existsSync(contentServerPath)) {
+    const cliUiDir = path.join(CLI_ROOT, 'ui');
+    if (fs.existsSync(cliUiDir)) {
+      const spinner = ora('Copying MCP server source files').start();
+      fs.cpSync(cliUiDir, uiDir, {
+        recursive: true,
+        filter: (src) => !src.includes('node_modules') && !src.includes('dist'),
+      });
+      spinner.succeed('MCP server files installed');
+    } else {
+      console.log(chalk.red('  MCP server source files missing — cannot proceed with agent install.'));
+      return;
+    }
+  }
+
+  // Install ui/ npm deps so MCP servers can run (smol-toml etc.)
+  if (!fs.existsSync(path.join(uiDir, 'node_modules'))) {
+    const spinner = ora('Installing MCP server dependencies').start();
+    try {
+      execSync('npm install', { cwd: uiDir, stdio: 'pipe', timeout: 300000 });
+      spinner.succeed('MCP dependencies installed');
+    } catch (err) {
+      spinner.fail('Failed to install MCP dependencies');
+      console.log(chalk.dim(`  Run manually: cd ${uiDir} && npm install`));
+      return;
+    }
+  }
+
+  // Detect Claude Code
+  let claudeAvailable = false;
+  try {
+    execSync('claude --version', { stdio: 'pipe' });
+    claudeAvailable = true;
+  } catch { /* not installed */ }
+
+  if (!claudeAvailable) {
+    console.log(chalk.yellow('  Claude Code not found on PATH.'));
+    console.log(chalk.dim('  Install: https://claude.com/claude-code'));
+    console.log(chalk.dim('  After installing, register MCPs from this directory:'));
+    console.log(chalk.dim(`    claude mcp add noetix-kb -s project node ${kbServerPath} -e REMOTE_BASE=${config.backendUrl}`));
+    console.log(chalk.dim(`    claude mcp add noetix-content -s project node ${contentServerPath} -e REMOTE_BASE=${config.backendUrl} -e DOWNLOADS_DIR=${downloadsDir}`));
+    return;
+  }
+
+  // Register MCPs (idempotent: remove existing first)
+  const spinner = ora('Registering noetix MCP servers with Claude Code').start();
+  try {
+    for (const name of ['noetix-kb', 'noetix-content']) {
+      try {
+        execSync(`claude mcp remove ${name} -s project`, { cwd: installDir, stdio: 'pipe' });
+      } catch { /* not present, ignore */ }
+    }
+    execSync(
+      `claude mcp add noetix-kb -s project node ${kbServerPath} -e REMOTE_BASE=${config.backendUrl}`,
+      { cwd: installDir, stdio: 'pipe' }
+    );
+    execSync(
+      `claude mcp add noetix-content -s project node ${contentServerPath} -e REMOTE_BASE=${config.backendUrl} -e DOWNLOADS_DIR=${downloadsDir}`,
+      { cwd: installDir, stdio: 'pipe' }
+    );
+    spinner.succeed('Claude Code MCP servers registered (project scope)');
+  } catch (err) {
+    spinner.fail('Failed to register MCP servers');
+    console.log(chalk.dim(`  Error: ${err.message}`));
+  }
 }

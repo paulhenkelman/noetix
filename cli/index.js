@@ -15,11 +15,11 @@ program
 
 program
   .command('init')
-  .description('Interactive setup — choose full, frontend-only, or backend-only installation')
+  .description('Interactive setup — choose full, back-end, or agent installation')
   .option('-d, --dir <path>', 'Installation directory', '.')
-  .option('-m, --mode <mode>', 'Installation mode: full, frontend, backend')
+  .option('-m, --mode <mode>', 'Installation mode: full, backend, agent (or legacy: frontend)')
   .option('-y, --yes', 'Accept all defaults (non-interactive)')
-  .option('--backend-url <url>', 'Backend URL (frontend-only mode)')
+  .option('--backend-url <url>', 'Backend URL (agent or frontend mode)')
   .option('--backend-deploy <method>', 'Backend deployment: native or docker', 'native')
   .option('-p, --port <port>', 'Noetix UI port')
   .option('--backend-port <port>', 'Backend port')
