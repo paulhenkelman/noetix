@@ -224,7 +224,9 @@ export async function init(options) {
     let uiConfig = readTemplate('ui.config');
     uiConfig = uiConfig.replace(/^port = 8788$/m, `port = ${config.uiPort}`);
     uiConfig = uiConfig.replace(/^vite_port = 5174$/m, `vite_port = ${config.vitePort}`);
-    uiConfig = uiConfig.replace(/^api_base = .*$/m, `api_base = "http://127.0.0.1:${config.uiPort}"`);
+    // Leave api_base empty — main.js falls back to location.origin so the
+    // bundle works regardless of which host the browser loads it from.
+    uiConfig = uiConfig.replace(/^api_base = .*$/m, `api_base = ""`);
     if (config.backendUrl) {
       uiConfig = uiConfig.replace(/^url = .*$/m, `url = "${config.backendUrl}"`);
     }
