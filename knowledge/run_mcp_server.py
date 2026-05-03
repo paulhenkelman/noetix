@@ -3,7 +3,7 @@
 Noetix MCP Server Runner
 
 Run this script to start the MCP server for integration with
-Claude Code and other MCP clients.
+AI agents and other MCP clients.
 
 Usage:
     python run_mcp_server.py

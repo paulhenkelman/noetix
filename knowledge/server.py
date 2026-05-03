@@ -684,7 +684,7 @@ def run_conversion(job_id: str, pdf_paths: list[Path], voice: str, title: str = 
             logger.warning(f"OCR check/pre-processing failed: {e}")
             # Continue without OCR - may fail later for scanned PDFs
 
-        # Step 1: Analyze PDF(s) with Claude AI
+        # Step 1: Analyze PDF(s) with AI
         jobs[job_id]["status"] = "analyzing"
         if len(pdf_paths) > 1:
             jobs[job_id]["current_task"] = f"Analyzing {len(pdf_paths)} PDFs with AI..."
@@ -1042,7 +1042,8 @@ def run_conversion(job_id: str, pdf_paths: list[Path], voice: str, title: str = 
                         jobs[job_id]["progress"] = pct
                         jobs[job_id]["current_task"] = f"KB: {msg}"
 
-                    # Ingest document
+                    # Ingest document (pass hierarchical structure if available)
+                    ingest_structure = analysis.get("structure") if analysis else None
                     doc = pipeline.ingest_document(
                         kb_id=kb_id,
                         title=title or main_pdf_path.stem,
@@ -1051,7 +1052,8 @@ def run_conversion(job_id: str, pdf_paths: list[Path], voice: str, title: str = 
                         source_file=main_pdf_path.name,
                         total_pages=actual_page_count,
                         ocr_required=needs_ocr,
-                        progress_callback=kb_progress
+                        progress_callback=kb_progress,
+                        structure=ingest_structure
                     )
 
                     jobs[job_id]["output_files"]["knowledge_base"] = {"kb_id": kb_id, "document_id": doc.id}
@@ -1135,7 +1137,7 @@ def run_conversion_from_library(job_id: str, source_path: Path, source_type: str
             jobs[job_id]["current_task"] = "Extracting text from PDF..."
             jobs[job_id]["progress"] = 18
 
-            # Analyze PDF with Claude AI for chapter detection
+            # Analyze PDF with AI for chapter detection
             analysis = None
             try:
                 from pipeline.pdf_analyzer import PDFAnalyzer
@@ -1331,6 +1333,7 @@ def run_conversion_from_library(job_id: str, source_path: Path, source_type: str
 
                     extractor.close()
 
+                    ingest_structure = analysis.get("structure") if analysis else None
                     doc = pipeline.ingest_document(
                         kb_id=kb_id,
                         title=title,
@@ -1338,7 +1341,8 @@ def run_conversion_from_library(job_id: str, source_path: Path, source_type: str
                         chapters=chapters_data,
                         source_file=source_path.name,
                         total_pages=page_count,
-                        ocr_required=needs_ocr
+                        ocr_required=needs_ocr,
+                        structure=ingest_structure
                     )
 
                     jobs[job_id]["output_files"]["knowledge_base"] = {"kb_id": kb_id, "document_id": doc.id}

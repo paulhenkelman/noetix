@@ -1,38 +1,83 @@
 #!/usr/bin/env python3
 """
-PDF Analyzer Module using Claude Code CLI
-Automatically extracts book metadata and chapter structure from PDFs.
+PDF Analyzer Module
+
+Extracts book metadata and chapter structure from PDFs using the
+gateway /api/analyze endpoint (routes through Codex app-server).
 """
 
 import json
-import os
 import re
-import subprocess
-import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 import logging
 
 import fitz  # PyMuPDF
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CLAUDE_CLI_PATH = os.environ.get("CLAUDE_CLI_PATH", "claude")
+# Gateway URL — overridden from knowledge.config via Settings
+_gateway_url = None
+
+
+def _get_gateway_url() -> str:
+    global _gateway_url
+    if _gateway_url is None:
+        try:
+            from config.settings import settings
+            _gateway_url = settings.gateway_url
+        except Exception:
+            _gateway_url = "http://localhost:8788"
+    return _gateway_url
+
+
+def _call_analyze(prompt: str, timeout: int = 120) -> str:
+    """Send a prompt to the gateway /api/analyze endpoint with 1 retry."""
+    url = f"{_get_gateway_url()}/api/analyze"
+    last_err = None
+    for attempt in range(2):
+        try:
+            resp = requests.post(
+                url,
+                json={"prompt": prompt},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("result", "")
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                logger.warning(f"Gateway analyze call failed (attempt 1): {e}, retrying in 5s...")
+                time.sleep(5)
+    raise RuntimeError(f"Gateway analyze failed after 2 attempts: {last_err}")
+
+
+def _parse_json_response(response_text: str) -> dict:
+    """Extract JSON object from a model response that may contain markdown."""
+    text = response_text.strip()
+
+    # Strip markdown code blocks
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0]
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0]
+
+    # Find JSON object
+    json_match = re.search(r'\{[\s\S]*\}', text)
+    if json_match:
+        text = json_match.group()
+
+    return json.loads(text)
 
 
 class PDFAnalyzer:
-    """
-    Analyzes PDF books using Claude Code CLI to extract metadata and chapter structure.
-    """
+    """Analyzes PDF books to extract metadata and chapter structure."""
 
     def __init__(self, ocr_cache_path: Path | str = None):
-        """
-        Initialize the analyzer.
-
-        Args:
-            ocr_cache_path: Path to pre-computed OCR cache file (from preprocess_pdf_with_ocr)
-        """
         self.ocr_cache = None
         if ocr_cache_path:
             from ocr_engine import load_ocr_cache
@@ -52,7 +97,6 @@ class PDFAnalyzer:
         doc = fitz.open(str(pdf_path))
         total_pages = len(doc)
 
-        # Check if we have OCR cache
         use_ocr_cache = self.ocr_cache and self.ocr_cache.get("needs_ocr")
 
         text_parts = []
@@ -60,11 +104,9 @@ class PDFAnalyzer:
 
         for page_num in range(pages_to_extract):
             if use_ocr_cache:
-                # Use cached OCR text
                 from ocr_engine import get_ocr_text_for_page
                 text = get_ocr_text_for_page(self.ocr_cache, page_num) or ""
             else:
-                # Standard text extraction
                 page = doc[page_num]
                 text = page.get_text()
 
@@ -76,16 +118,13 @@ class PDFAnalyzer:
 
     def analyze(self, pdf_path: Path | str) -> dict:
         """
-        Analyze a PDF and extract metadata and chapter structure using Claude Code CLI.
+        Analyze a PDF and extract metadata and chapter structure.
 
         Args:
             pdf_path: Path to the PDF file
 
         Returns:
-            Dictionary with:
-            - title: Book title
-            - author: Book author
-            - chapters: List of chapter definitions
+            Dictionary with title, author, chapters, and optionally structure
         """
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
@@ -93,11 +132,10 @@ class PDFAnalyzer:
 
         logger.info(f"Analyzing PDF: {pdf_path.name}")
 
-        # Extract sample text
         sample_text, total_pages = self.extract_sample_text(pdf_path)
 
-        # Create a temporary file with the prompt and text
-        prompt = f"""Analyze this PDF book text and extract structured metadata. The text includes the first ~25 pages which should contain the title page, copyright page, and table of contents.
+        prompt = f"""Analyze this PDF and extract structured metadata. The text includes
+the first ~25 pages which should contain the title page, copyright, and TOC.
 
 Total pages in PDF: {total_pages}
 
@@ -106,72 +144,51 @@ TEXT FROM PDF:
 
 ---
 
-Please analyze this text and return ONLY a JSON object (no markdown, no explanation) with the following structure:
+Return ONLY a JSON object with this structure:
 {{
-    "title": "The full book title",
+    "title": "Full book title",
     "author": "Author name(s)",
-    "chapters": [
-        {{"number": 0, "title": "Preface", "start_page": 5}},
-        {{"number": 1, "title": "Chapter Title", "start_page": 10}},
-        ...
+    "structure": [
+        {{
+            "level": 0,
+            "type": "part|chapter|section|lesson|unit|module",
+            "number": 1,
+            "title": "Title",
+            "start_page": 15,
+            "children": []
+        }}
     ]
 }}
 
-IMPORTANT GUIDELINES:
-1. Extract the exact book title from the title page
-2. Extract the author name(s) from the title or copyright page
-3. Find the Table of Contents and extract ALL chapters with their page numbers
-4. The start_page should be the PDF page number (1-indexed as shown in PAGE markers above)
-5. Include preface, introduction, and any front matter as chapter 0 or early chapters
-6. Include appendices, glossary, references, and index as later chapters if present
-7. Convert Roman numeral page numbers to their corresponding PDF page positions
-8. If you see page numbers in the TOC like "1", "23", "45" - these are BOOK page numbers, not PDF page numbers. Calculate the offset by finding where page 1 of the book content starts in the PDF.
+GUIDELINES:
+1. Detect the document's NATIVE organizational vocabulary — Chapter, Lesson,
+   Unit, Part, Section, Module, Lecture, Topic, or numbered outlines
+2. Preserve hierarchical nesting as found in the TOC or inferred from headings
+3. Always include level (0-based depth) and start_page (1-indexed PDF page)
+4. For documents with no clear TOC, infer structure from heading patterns
+5. Include front matter (preface, intro) and back matter (appendix, glossary)
+6. Convert book page numbers to PDF page numbers using the observed offset
+7. If structure is completely flat (no sub-sections), still use the structure
+   format with level=0 for each entry
 
 Return ONLY the JSON object, nothing else."""
 
-        # Write prompt to temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write(prompt)
-            prompt_file = f.name
-
         try:
-            logger.info("Calling Claude Code CLI for analysis...")
+            logger.info("Calling gateway for PDF analysis...")
+            response_text = _call_analyze(prompt)
 
-            # Call claude CLI with the prompt
-            result = subprocess.run(
-                [CLAUDE_CLI_PATH, '-p', prompt, '--output-format', 'text'],
-                capture_output=True,
-                text=True,
-                timeout=120
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Claude CLI error: {result.stderr}")
-                raise RuntimeError(f"Claude CLI failed: {result.stderr}")
-
-            response_text = result.stdout.strip()
-
-            # Try to extract JSON from response
             try:
-                # Handle case where response might have markdown code blocks
-                if "```json" in response_text:
-                    response_text = response_text.split("```json")[1].split("```")[0]
-                elif "```" in response_text:
-                    response_text = response_text.split("```")[1].split("```")[0]
+                result = _parse_json_response(response_text)
 
-                # Find JSON object in response
-                json_match = re.search(r'\{[\s\S]*\}', response_text)
-                if json_match:
-                    response_text = json_match.group()
-
-                result = json.loads(response_text)
-
-                # Validate structure
                 if "title" not in result:
                     result["title"] = pdf_path.stem
                 if "author" not in result:
                     result["author"] = "Unknown"
-                if "chapters" not in result:
+
+                # Build flat chapters from structure for backward compatibility
+                if "structure" in result:
+                    result["chapters"] = _flatten_to_chapters(result["structure"])
+                elif "chapters" not in result:
                     result["chapters"] = [{"number": 1, "title": pdf_path.stem, "start_page": 1}]
 
                 logger.info(f"Extracted: '{result['title']}' by {result['author']}")
@@ -180,34 +197,33 @@ Return ONLY the JSON object, nothing else."""
                 return result
 
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse Claude response as JSON: {e}")
+                logger.error(f"Failed to parse response as JSON: {e}")
                 logger.error(f"Response was: {response_text[:500]}")
 
-                # Return fallback
                 return {
                     "title": pdf_path.stem,
                     "author": "Unknown",
                     "chapters": [{"number": 1, "title": pdf_path.stem, "start_page": 1}]
                 }
 
-        finally:
-            # Cleanup temp file
-            os.unlink(prompt_file)
+        except Exception as e:
+            logger.error(f"PDF analysis failed: {e}")
+            return {
+                "title": pdf_path.stem,
+                "author": "Unknown",
+                "chapters": [{"number": 1, "title": pdf_path.stem, "start_page": 1}]
+            }
 
     def analyze_multiple(self, pdf_paths: list[Path]) -> tuple[dict, list[Path]]:
         """
         Analyze multiple PDFs to determine if they belong to the same book,
         their correct order, and extract metadata.
 
-        Args:
-            pdf_paths: List of paths to PDF files
-
         Returns:
             Tuple of (analysis_dict, ordered_pdf_paths)
         """
         logger.info(f"Analyzing {len(pdf_paths)} PDFs for ordering and metadata")
 
-        # Extract sample text from each PDF
         pdf_samples = []
         for pdf_path in pdf_paths:
             sample_text, total_pages = self.extract_sample_text(pdf_path, max_pages=10)
@@ -215,11 +231,10 @@ Return ONLY the JSON object, nothing else."""
                 "filename": pdf_path.name,
                 "path": str(pdf_path),
                 "total_pages": total_pages,
-                "sample_text": sample_text[:5000]  # Limit to first 5000 chars per PDF
+                "sample_text": sample_text[:5000]
             })
 
-        # Build prompt for Claude
-        prompt = f"""Analyze these {len(pdf_paths)} PDF files. They may be parts of the same book (e.g., chapters split into separate files) or related documents.
+        prompt = f"""Analyze these {len(pdf_paths)} PDF files. They may be parts of the same book or related documents.
 
 PDF FILES:
 """
@@ -232,7 +247,7 @@ PDF FILES:
         prompt += """
 ---
 
-Please analyze these PDFs and return ONLY a JSON object (no markdown, no explanation) with:
+Analyze these PDFs and return ONLY a JSON object with:
 1. Whether they belong to the same book/document
 2. The correct reading order (by filename)
 3. Combined metadata
@@ -259,34 +274,12 @@ IMPORTANT:
 Return ONLY the JSON object."""
 
         try:
-            logger.info("Calling Claude Code CLI for multi-PDF analysis...")
+            logger.info("Calling gateway for multi-PDF analysis...")
+            response_text = _call_analyze(prompt, timeout=180)
 
-            result = subprocess.run(
-                [CLAUDE_CLI_PATH, '-p', prompt, '--output-format', 'text'],
-                capture_output=True,
-                text=True,
-                timeout=180  # Longer timeout for multiple PDFs
-            )
+            analysis = _parse_json_response(response_text)
 
-            if result.returncode != 0:
-                logger.error(f"Claude CLI error: {result.stderr}")
-                raise RuntimeError(f"Claude CLI failed: {result.stderr}")
-
-            response_text = result.stdout.strip()
-
-            # Parse JSON from response
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0]
-
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            if json_match:
-                response_text = json_match.group()
-
-            analysis = json.loads(response_text)
-
-            # Reorder pdf_paths based on AI analysis
+            # Reorder pdf_paths based on analysis
             ordered_filenames = analysis.get("ordered_files", [p.name for p in pdf_paths])
             filename_to_path = {p.name: p for p in pdf_paths}
 
@@ -295,25 +288,22 @@ Return ONLY the JSON object."""
                 if filename in filename_to_path:
                     ordered_paths.append(filename_to_path[filename])
                 else:
-                    # Try partial match
                     for name, path in filename_to_path.items():
                         if filename in name or name in filename:
                             ordered_paths.append(path)
                             break
 
-            # Add any missing paths at the end
             for path in pdf_paths:
                 if path not in ordered_paths:
                     ordered_paths.append(path)
 
-            logger.info(f"AI determined order: {[p.name for p in ordered_paths]}")
+            logger.info(f"Determined order: {[p.name for p in ordered_paths]}")
             logger.info(f"Extracted: '{analysis.get('title')}' by {analysis.get('author')}")
 
             return analysis, ordered_paths
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse Claude response: {e}")
-            # Return fallback with original order
+            logger.error(f"Failed to parse response: {e}")
             return {
                 "title": pdf_paths[0].stem,
                 "author": "Unknown",
@@ -329,16 +319,7 @@ Return ONLY the JSON object."""
             }, pdf_paths
 
     def analyze_and_save(self, pdf_path: Path | str, output_path: Path | str = None) -> dict:
-        """
-        Analyze a PDF and save the results to a JSON file.
-
-        Args:
-            pdf_path: Path to the PDF file
-            output_path: Path to save JSON (default: same name as PDF with .json extension)
-
-        Returns:
-            The analysis results dictionary
-        """
+        """Analyze a PDF and save the results to a JSON file."""
         pdf_path = Path(pdf_path)
         if output_path is None:
             output_path = pdf_path.with_suffix('.analysis.json')
@@ -351,20 +332,26 @@ Return ONLY the JSON object."""
             json.dump(result, f, indent=2)
 
         logger.info(f"Saved analysis to: {output_path}")
-
         return result
 
 
+def _flatten_to_chapters(structure, chapters=None):
+    """Convert hierarchical structure to flat chapter list for backward compat."""
+    if chapters is None:
+        chapters = []
+    for node in structure:
+        chapters.append({
+            "number": node.get("number", len(chapters) + 1),
+            "title": node.get("title", "Untitled"),
+            "start_page": node.get("start_page", 1)
+        })
+        if "children" in node and node["children"]:
+            _flatten_to_chapters(node["children"], chapters)
+    return chapters
+
+
 def analyze_pdf(pdf_path: str | Path) -> dict:
-    """
-    Convenience function to analyze a PDF.
-
-    Args:
-        pdf_path: Path to the PDF file
-
-    Returns:
-        Analysis results dictionary
-    """
+    """Convenience function to analyze a PDF."""
     analyzer = PDFAnalyzer()
     return analyzer.analyze(pdf_path)
 

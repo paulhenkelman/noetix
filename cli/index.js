@@ -2,7 +2,6 @@
 
 import { Command } from 'commander';
 import { init } from './commands/init.js';
-import { login, logout } from './commands/login.js';
 import { start } from './commands/start.js';
 import { stop } from './commands/stop.js';
 import { status } from './commands/status.js';
@@ -11,8 +10,8 @@ const program = new Command();
 
 program
   .name('noetix')
-  .description('AI-powered knowledge platform')
-  .version('0.1.0');
+  .description('Knowledge platform — document management, content processing, and MCP tool services')
+  .version('0.2.0');
 
 program
   .command('init')
@@ -26,19 +25,6 @@ program
   .option('--backend-port <port>', 'Backend port')
   .option('--vite-port <port>', 'Frontend dev port')
   .action(init);
-
-program
-  .command('login')
-  .description('Authenticate with LLM provider')
-  .option('-p, --provider <name>', 'Provider (openai, anthropic)')
-  .option('--device-auth', 'Use device code flow (headless / SSH)')
-  .action(login);
-
-program
-  .command('logout')
-  .description('Remove stored credentials')
-  .option('-p, --provider <name>', 'Provider to clear (or "all")')
-  .action(logout);
 
 program
   .command('start [service]')

@@ -117,7 +117,13 @@ export async function init(options) {
   // =================================================================
 
   if (needsFrontend) {
-    await checkLLMProvider(auto, config);
+    // Check Node.js version
+    if (!isNodeVersionOk()) {
+      console.log(chalk.red('  Node.js 18+ is required'));
+      process.exit(1);
+    }
+    console.log(chalk.green(`  Node.js: ${process.versions.node}`));
+    console.log('');
   }
 
   if (needsBackend) {
@@ -203,23 +209,8 @@ export async function init(options) {
 
   fs.mkdirSync(installDir, { recursive: true });
 
-  // noetix.config — write LLM provider settings from checkLLMProvider
-  let noetixConfig = readTemplate('noetix.config');
-  if (config.llmProvider) {
-    noetixConfig = noetixConfig.replace(/^provider = .*$/m, `provider = "${config.llmProvider}"`);
-  }
-  if (config.llmModel) {
-    noetixConfig = noetixConfig.replace(/^model = .*$/m, `model = "${config.llmModel}"`);
-  }
-  if (config.llmAuthMethod) {
-    noetixConfig = noetixConfig.replace(/^auth_method = .*$/m, `auth_method = "${config.llmAuthMethod}"`);
-  }
-  if (config.llmApiKey) {
-    noetixConfig = noetixConfig.replace(/^api_key = ""$/m, `api_key = "${config.llmApiKey}"`);
-  }
-  if (config.llmBaseUrl) {
-    noetixConfig = noetixConfig.replace(/^base_url = ""$/m, `base_url = "${config.llmBaseUrl}"`);
-  }
+  // noetix.config
+  const noetixConfig = readTemplate('noetix.config');
   fs.writeFileSync(path.join(installDir, 'noetix.config'), noetixConfig);
 
   // ui.config
@@ -360,77 +351,6 @@ export async function init(options) {
 // LLM provider prerequisite check
 // -----------------------------------------------------------------
 
-async function checkLLMProvider(auto = false, config = {}) {
-  console.log(chalk.dim('Checking prerequisites...'));
-
-  if (!isNodeVersionOk()) {
-    console.log(chalk.red('  Node.js 18+ is required'));
-    process.exit(1);
-  }
-  console.log(chalk.green(`  Node.js: ${process.versions.node}`));
-
-  // Select LLM provider
-  const provider = auto ? 'openai' : await select({
-    message: 'LLM provider',
-    choices: [
-      { name: 'OpenAI (GPT models via API)', value: 'openai' },
-      { name: 'Anthropic (Claude models via API)', value: 'anthropic' },
-      { name: 'Ollama (local models)', value: 'ollama' },
-      { name: 'vLLM (self-hosted OpenAI-compatible)', value: 'vllm' },
-    ],
-  });
-  config.llmProvider = provider;
-
-  if (provider === 'openai' || provider === 'anthropic') {
-    // Authentication method
-    const authMethod = auto ? 'api_key' : await select({
-      message: 'Authentication method',
-      choices: [
-        { name: 'API key', value: 'api_key' },
-        { name: 'OAuth token (run `noetix login` after init)', value: 'oauth' },
-      ],
-    });
-    config.llmAuthMethod = authMethod;
-
-    if (authMethod === 'api_key') {
-      const providerName = provider === 'openai' ? 'OpenAI' : 'Anthropic';
-      const apiKey = auto ? '' : await password({
-        message: `${providerName} API key (or press Enter to configure later)`,
-        mask: '*',
-      });
-      config.llmApiKey = apiKey || '';
-      if (!apiKey) {
-        console.log(chalk.dim(`  Set API key later in noetix.config [llm] section`));
-      }
-    } else {
-      console.log(chalk.dim(`  Run \`noetix login\` after init to provide your OAuth token`));
-    }
-  } else if (provider === 'ollama' || provider === 'vllm') {
-    const defaultUrl = provider === 'ollama' ? 'http://localhost:11434' : 'http://localhost:8000/v1';
-    const baseUrl = auto ? defaultUrl : await input({
-      message: `${provider === 'ollama' ? 'Ollama' : 'vLLM'} base URL`,
-      default: defaultUrl,
-    });
-    config.llmBaseUrl = baseUrl;
-  }
-
-  // Model name
-  const defaultModel = {
-    openai: 'gpt-5.3',
-    anthropic: 'claude-sonnet-4-6-20250514',
-    ollama: 'llama3.3',
-    vllm: 'meta-llama/Llama-3.3-70B-Instruct',
-  }[provider];
-
-  const model = auto ? defaultModel : await input({
-    message: 'Model name',
-    default: defaultModel,
-  });
-  config.llmModel = model;
-
-  console.log(chalk.green(`  LLM: ${provider}/${model}`));
-  console.log('');
-}
 
 // -----------------------------------------------------------------
 // Backend prerequisite check

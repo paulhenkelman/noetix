@@ -50,6 +50,21 @@ class Chapter(BaseModel):
     text: str = ""
 
 
+class Section(BaseModel):
+    """Generalized structural unit within a document (part, chapter, section, subsection)."""
+    id: str = Field(default_factory=generate_id)
+    document_id: str
+    parent_id: Optional[str] = None  # None = top-level
+    level: int = 0                   # 0=part, 1=chapter, 2=section, 3=subsection
+    section_type: str = "chapter"    # part, chapter, section, subsection, lesson, unit, module
+    number: int = 0
+    title: str
+    start_page: int = 0
+    end_page: Optional[int] = None
+    text: str = ""
+    order: int = 0                   # position among siblings
+
+
 class Document(BaseModel):
     """Document in a knowledge base."""
     id: str = Field(default_factory=generate_id)
@@ -61,6 +76,7 @@ class Document(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     ocr_required: bool = False
     chapters: list[Chapter] = Field(default_factory=list)
+    sections: list[Section] = Field(default_factory=list)
 
 
 class Chunk(BaseModel):
@@ -87,6 +103,8 @@ class SearchResult(BaseModel):
     document_title: str
     document_author: str
     chapter_title: Optional[str] = None
+    section_path: Optional[list[str]] = None     # ["Part I", "Ch 3", "Section 3.2"]
+    related_concepts: Optional[list[str]] = None  # entities in this chunk's section
 
 
 class Entity(BaseModel):

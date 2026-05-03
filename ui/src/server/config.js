@@ -95,29 +95,8 @@ const config = {
   playwrightFallbackPorts: ui.playwright?.fallback_ports || [8931, 8932, 3000],
   downloadsDir: downloadsDirVal,
 
-  // LLM
-  llmProvider: process.env.LLM_PROVIDER || noetix.llm?.provider || 'openai',
-  llmModel: process.env.LLM_MODEL || noetix.llm?.model || 'gpt-5.3',
-  llmAuthMethod: process.env.LLM_AUTH_METHOD || noetix.llm?.auth_method || 'api_key',
-  llmApiKey: process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || noetix.llm?.api_key || '',
-  llmAuthToken: process.env.LLM_AUTH_TOKEN || '',
-  llmBaseUrl: process.env.LLM_BASE_URL || noetix.llm?.base_url || '',
-  llmOrganizationId: process.env.LLM_ORGANIZATION_ID || noetix.llm?.organization_id || '',
-  llmReasoningEffort: noetix.llm?.reasoning_effort || 'high',
-  llmMaxTokens: noetix.llm?.max_tokens || 16384,
-  llmTemperature: noetix.llm?.temperature ?? 0.0,
-  llmMaxToolIterations: noetix.llm?.max_tool_iterations || 30,
-
-  // Agent
-  agentRequestTimeout: ui.agent?.request_timeout_ms || 7200000,
-  agentRestartDelay: ui.agent?.restart_delay_ms || 1000,
-  agentMaxRestartAttempts: ui.agent?.max_restart_attempts || 5,
-
   // MCP servers (structured)
   mcpServers,
-
-  // Verify
-  maxVerifyAttempts: ui.verify?.max_attempts || 2,
 
   // Frontend
   apiBase: ui.frontend?.api_base || 'http://127.0.0.1:8788',

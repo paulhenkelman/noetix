@@ -194,6 +194,16 @@ if [ "$MODE" = "full" ] || [ "$MODE" = "backend" ]; then
     echo "Created .env from .env.example — edit to add your OpenAI API key"
   fi
 
+  # Start Neo4j if docker is available and compose file exists
+  NEO4J_COMPOSE="$PROJECT_ROOT/knowledge/docker/docker-compose.neo4j.yml"
+  if command -v docker &>/dev/null && [ -f "$NEO4J_COMPOSE" ]; then
+    echo -e "${BOLD}--- Starting Neo4j graph database ---${NC}"
+    docker compose -f "$NEO4J_COMPOSE" up -d 2>&1 || echo "Warning: Neo4j container failed to start. Graph features will be unavailable."
+  else
+    echo -e "${YELLOW}Note: Docker not found or Neo4j compose file missing. Graph features disabled.${NC}"
+    echo "  To enable later: docker compose -f knowledge/docker/docker-compose.neo4j.yml up -d"
+  fi
+
   # Systemd service for backend
   SYSTEMD_DIR="${HOME}/.config/systemd/user"
   mkdir -p "$SYSTEMD_DIR"

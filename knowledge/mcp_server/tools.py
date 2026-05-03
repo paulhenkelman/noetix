@@ -176,8 +176,9 @@ class KBTools:
                 top_k=top_k,
                 search_type=search_type
             )
-            formatted_results = [
-                {
+            formatted_results = []
+            for r in results:
+                entry = {
                     "chunk_id": r.chunk.id,
                     "text": r.chunk.text,
                     "kb_id": r.chunk.kb_id,
@@ -187,10 +188,13 @@ class KBTools:
                     "chapter_id": r.chunk.chapter_id,
                     "chapter_title": r.chapter_title,
                     "page_number": r.chunk.page_number,
-                    "score": r.score
+                    "score": r.score,
                 }
-                for r in results
-            ]
+                if r.section_path:
+                    entry["section_path"] = r.section_path
+                if r.related_concepts:
+                    entry["related_concepts"] = r.related_concepts
+                formatted_results.append(entry)
 
             # Log search for analytics
             self.log_search(query, kb_ids, len(formatted_results), search_type)
@@ -833,6 +837,265 @@ class KBTools:
         except Exception as e:
             logger.debug(f"Failed to log document view: {e}")
 
+    # =========================================================================
+    # Graph Navigation Tools
+    # =========================================================================
+
+    def browse_structure(
+        self,
+        doc_id: str,
+        kb_id: Optional[str] = None,
+        max_depth: int = 3
+    ) -> dict:
+        """
+        Return the hierarchical outline of a document.
+
+        Falls back to flat chapter list when graph data is unavailable.
+        """
+        # Try graph store for hierarchical sections
+        if self.graph_store:
+            if not kb_id:
+                kb_id = self._find_kb_for_doc(doc_id)
+            if kb_id:
+                try:
+                    tree = self.graph_store.get_document_structure(kb_id, doc_id, max_depth)
+                    if tree:
+                        return {"document_id": doc_id, "kb_id": kb_id, "sections": tree, "source": "graph"}
+                except Exception as e:
+                    logger.debug(f"Graph structure lookup failed: {e}")
+
+        # Fallback: flat chapter list from registry
+        doc = self._find_document(doc_id, kb_id)
+        if not doc:
+            return {"error": "Document not found"}
+
+        chapters = []
+        doc_data = doc.model_dump() if hasattr(doc, 'model_dump') else doc
+        for ch in doc_data.get("chapters", []):
+            chapters.append({
+                "level": 0,
+                "type": "chapter",
+                "number": ch.get("number", 0),
+                "title": ch.get("title", ""),
+                "start_page": ch.get("start_page", 0),
+                "children": []
+            })
+        return {"document_id": doc_id, "kb_id": kb_id, "sections": chapters, "source": "registry"}
+
+    def explore_concepts(
+        self,
+        query: str,
+        kb_ids: Optional[list[str]] = None,
+        top_k: int = 20,
+        include_related: bool = True
+    ) -> list[dict]:
+        """
+        Return concepts and entities related to a query with cross-references.
+        """
+        if not self.graph_store:
+            return []
+
+        if not kb_ids:
+            kb_ids = [kb.id for kb in self.registry.list()]
+
+        results = []
+        seen = set()
+
+        for kb_id in kb_ids:
+            try:
+                entities = self.graph_store.search_entities(kb_id, query, top_k=top_k)
+                for e in entities:
+                    name = e.get("name", "")
+                    if name in seen:
+                        continue
+                    seen.add(name)
+
+                    entry = {
+                        "name": name,
+                        "type": e.get("type", ""),
+                        "description": e.get("description", ""),
+                        "kb_id": kb_id,
+                        "score": e.get("score", 0),
+                    }
+
+                    # Add cross-references
+                    if include_related:
+                        try:
+                            refs = self.graph_store.find_entity_cross_references(
+                                kb_id, name, kb_ids=kb_ids
+                            )
+                            entry["documents"] = refs
+                        except Exception:
+                            entry["documents"] = []
+
+                    results.append(entry)
+            except Exception as e:
+                logger.debug(f"Entity search failed for KB {kb_id}: {e}")
+
+        results.sort(key=lambda x: x.get("score", 0), reverse=True)
+        return results[:top_k]
+
+    def get_section_content_tool(
+        self,
+        section_id: Optional[str] = None,
+        doc_id: Optional[str] = None,
+        section_title: Optional[str] = None,
+        kb_id: Optional[str] = None,
+        include_children: bool = True
+    ) -> Optional[dict]:
+        """
+        Get section metadata and children. Supports lookup by ID or by doc+title.
+        """
+        if not self.graph_store:
+            return {"error": "Graph store not available"}
+
+        if not kb_id and doc_id:
+            kb_id = self._find_kb_for_doc(doc_id)
+
+        if not kb_id:
+            return {"error": "Could not determine knowledge base"}
+
+        # Resolve section_id from title if needed
+        if not section_id and doc_id and section_title:
+            section = self.graph_store.get_section_by_title(kb_id, doc_id, section_title)
+            if section:
+                section_id = section.get("id")
+            else:
+                return {"error": f"Section '{section_title}' not found in document"}
+
+        if not section_id:
+            return {"error": "Must provide section_id or (doc_id + section_title)"}
+
+        return self.graph_store.get_section_content(kb_id, section_id, include_chunks=False)
+
+    def find_cross_references(
+        self,
+        entity_name: str,
+        entity_type: Optional[str] = None,
+        kb_ids: Optional[list[str]] = None
+    ) -> list[dict]:
+        """Find all documents and sections mentioning an entity."""
+        if not self.graph_store:
+            return []
+
+        if not kb_ids:
+            kb_ids = [kb.id for kb in self.registry.list()]
+
+        results = []
+        for kb_id in kb_ids:
+            try:
+                refs = self.graph_store.find_entity_cross_references(
+                    kb_id, entity_name, entity_type, kb_ids=[kb_id]
+                )
+                results.extend(refs)
+            except Exception as e:
+                logger.debug(f"Cross-reference search failed for KB {kb_id}: {e}")
+
+        return results
+
+    def get_kb_overview(self, kb_id: str) -> Optional[dict]:
+        """
+        Structural overview of a KB: document list, top entities, hierarchy depth.
+        """
+        kb = self.registry.get(kb_id)
+        if not kb:
+            return None
+
+        overview = {
+            "kb_id": kb_id,
+            "name": kb.name,
+            "description": kb.description,
+            "stats": kb.stats.model_dump() if kb.stats else {},
+            "documents": [],
+            "entity_summary": {},
+        }
+
+        # Get document list with section info
+        docs = self.registry.list_documents(kb_id) if hasattr(self.registry, 'list_documents') else []
+        for doc in docs:
+            doc_info = {
+                "id": doc.id if hasattr(doc, 'id') else doc.get("id", ""),
+                "title": doc.title if hasattr(doc, 'title') else doc.get("title", ""),
+                "author": doc.author if hasattr(doc, 'author') else doc.get("author", ""),
+                "chapters": len(doc.chapters) if hasattr(doc, 'chapters') else 0,
+            }
+
+            # Add section depth from graph if available
+            if self.graph_store:
+                try:
+                    tree = self.graph_store.get_document_structure(kb_id, doc_info["id"], max_depth=10)
+                    doc_info["section_count"] = self._count_sections(tree)
+                    doc_info["max_depth"] = self._max_depth(tree)
+                except Exception:
+                    pass
+
+            overview["documents"].append(doc_info)
+
+        # Get entity type breakdown from graph
+        if self.graph_store:
+            try:
+                gs_stats = self.graph_store.get_stats(kb_id)
+                overview["graph_stats"] = gs_stats
+            except Exception:
+                pass
+
+        return overview
+
+    def get_learning_path_tool(
+        self,
+        from_concept: str,
+        to_concept: str,
+        kb_id: str
+    ) -> list[dict]:
+        """Find the path between two concepts through prerequisites and topic ordering."""
+        if not self.graph_store:
+            return []
+
+        try:
+            return self.graph_store.get_learning_path(from_concept, to_concept, kb_id)
+        except Exception as e:
+            logger.error(f"get_learning_path failed: {e}")
+            return []
+
+    # =========================================================================
+    # Helper methods
+    # =========================================================================
+
+    def _find_kb_for_doc(self, doc_id: str) -> Optional[str]:
+        """Find which KB contains a given document."""
+        for kb in self.registry.list():
+            doc = self.registry.get_document(kb.id, doc_id)
+            if doc:
+                return kb.id
+        return None
+
+    def _find_document(self, doc_id: str, kb_id: Optional[str] = None):
+        """Find a document by ID, optionally scoped to a KB."""
+        if kb_id:
+            return self.registry.get_document(kb_id, doc_id)
+        for kb in self.registry.list():
+            doc = self.registry.get_document(kb.id, doc_id)
+            if doc:
+                return doc
+        return None
+
+    def _count_sections(self, tree: list) -> int:
+        """Count total sections in a tree."""
+        count = 0
+        for node in tree:
+            count += 1
+            count += self._count_sections(node.get("children", []))
+        return count
+
+    def _max_depth(self, tree: list, current: int = 0) -> int:
+        """Find maximum nesting depth in a tree."""
+        if not tree:
+            return current
+        return max(
+            self._max_depth(node.get("children", []), current + 1)
+            for node in tree
+        )
+
 
 def create_kb_tools(kb_dir=None) -> KBTools:
     """
@@ -858,18 +1121,19 @@ def create_kb_tools(kb_dir=None) -> KBTools:
     vector_store = VectorStore(kb_dir / "lancedb")
     embedder = Embedder()
 
-    # Try to initialize graph store
+    # Try to initialize graph store (only if enabled in config)
     graph_store = None
-    try:
-        from knowledge_base import GraphStore
-        graph_store = GraphStore(
-            settings.NEO4J_URI,
-            settings.NEO4J_USER,
-            settings.NEO4J_PASSWORD
-        )
-        logger.info("Graph store initialized for MCP tools")
-    except Exception as e:
-        logger.info(f"Graph store not available: {e}")
+    if settings.neo4j_enabled:
+        try:
+            from knowledge_base import GraphStore
+            graph_store = GraphStore(
+                settings.NEO4J_URI,
+                settings.NEO4J_USER,
+                settings.NEO4J_PASSWORD
+            )
+            logger.info("Graph store initialized for MCP tools")
+        except Exception as e:
+            logger.info(f"Graph store not available: {e}")
 
     # Create hybrid retriever
     hybrid_retriever = None

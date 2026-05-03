@@ -351,6 +351,149 @@ def create_server(kb_dir=None):
                     },
                     "required": []
                 }
+            ),
+            # Graph Navigation Tools
+            Tool(
+                name="browse_structure",
+                description="Return the hierarchical outline of a document — its section tree with titles, levels, page ranges, and chunk counts. Use this to understand what a document contains before diving in.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "doc_id": {
+                            "type": "string",
+                            "description": "Document UUID"
+                        },
+                        "kb_id": {
+                            "type": "string",
+                            "description": "Knowledge base ID (optional)"
+                        },
+                        "max_depth": {
+                            "type": "integer",
+                            "description": "Maximum nesting depth to return (default: 3)",
+                            "default": 3
+                        }
+                    },
+                    "required": ["doc_id"]
+                }
+            ),
+            Tool(
+                name="explore_concepts",
+                description="Find concepts and entities related to a query, with definitions, document references, and inter-concept relationships.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query for concept names"
+                        },
+                        "kb_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Knowledge base IDs to search"
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Number of results (default: 20)",
+                            "default": 20
+                        },
+                        "include_related": {
+                            "type": "boolean",
+                            "description": "Include document cross-references (default: true)",
+                            "default": True
+                        }
+                    },
+                    "required": ["query"]
+                }
+            ),
+            Tool(
+                name="get_section_content",
+                description="Get a specific section's metadata and child section titles for navigation. Supports lookup by section ID or by document ID + section title.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "section_id": {
+                            "type": "string",
+                            "description": "Section UUID (provide this OR doc_id + section_title)"
+                        },
+                        "doc_id": {
+                            "type": "string",
+                            "description": "Document UUID (used with section_title)"
+                        },
+                        "section_title": {
+                            "type": "string",
+                            "description": "Section title to match (used with doc_id)"
+                        },
+                        "kb_id": {
+                            "type": "string",
+                            "description": "Knowledge base ID (optional)"
+                        },
+                        "include_children": {
+                            "type": "boolean",
+                            "description": "Include child section titles (default: true)",
+                            "default": True
+                        }
+                    },
+                    "required": []
+                }
+            ),
+            Tool(
+                name="find_cross_references",
+                description="Find all documents and sections mentioning a given entity, grouped by document.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "entity_name": {
+                            "type": "string",
+                            "description": "Entity name to search for"
+                        },
+                        "entity_type": {
+                            "type": "string",
+                            "description": "Filter by entity type (optional)"
+                        },
+                        "kb_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Knowledge base IDs to search"
+                        }
+                    },
+                    "required": ["entity_name"]
+                }
+            ),
+            Tool(
+                name="get_kb_overview",
+                description="Structural overview of a knowledge base: document list with section counts, entity breakdown, graph statistics.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "kb_id": {
+                            "type": "string",
+                            "description": "Knowledge base ID"
+                        }
+                    },
+                    "required": ["kb_id"]
+                }
+            ),
+            Tool(
+                name="get_learning_path",
+                description="Find the path between two concepts through prerequisites and topic ordering.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "from_concept": {
+                            "type": "string",
+                            "description": "Starting concept name"
+                        },
+                        "to_concept": {
+                            "type": "string",
+                            "description": "Target concept name"
+                        },
+                        "kb_id": {
+                            "type": "string",
+                            "description": "Knowledge base ID"
+                        }
+                    },
+                    "required": ["from_concept", "to_concept", "kb_id"]
+                }
             )
         ]
 
@@ -527,6 +670,80 @@ def create_server(kb_dir=None):
                     analytics_type=arguments.get("analytics_type", "search"),
                     days=arguments.get("days", 7)
                 )
+
+            # Graph Navigation Tools
+            elif name == "browse_structure":
+                error = validate_required(["doc_id"])
+                if error:
+                    result = {"error": error}
+                else:
+                    result = await run_tool(
+                        tools.browse_structure,
+                        doc_id=arguments["doc_id"],
+                        kb_id=arguments.get("kb_id"),
+                        max_depth=arguments.get("max_depth", 3)
+                    )
+
+            elif name == "explore_concepts":
+                error = validate_required(["query"])
+                if error:
+                    result = {"error": error}
+                else:
+                    result = await run_tool(
+                        tools.explore_concepts,
+                        query=arguments["query"],
+                        kb_ids=arguments.get("kb_ids"),
+                        top_k=arguments.get("top_k", 20),
+                        include_related=arguments.get("include_related", True)
+                    )
+
+            elif name == "get_section_content":
+                result = await run_tool(
+                    tools.get_section_content_tool,
+                    section_id=arguments.get("section_id"),
+                    doc_id=arguments.get("doc_id"),
+                    section_title=arguments.get("section_title"),
+                    kb_id=arguments.get("kb_id"),
+                    include_children=arguments.get("include_children", True)
+                )
+                if result is None:
+                    result = {"error": "Section not found"}
+
+            elif name == "find_cross_references":
+                error = validate_required(["entity_name"])
+                if error:
+                    result = {"error": error}
+                else:
+                    result = await run_tool(
+                        tools.find_cross_references,
+                        entity_name=arguments["entity_name"],
+                        entity_type=arguments.get("entity_type"),
+                        kb_ids=arguments.get("kb_ids")
+                    )
+
+            elif name == "get_kb_overview":
+                error = validate_required(["kb_id"])
+                if error:
+                    result = {"error": error}
+                else:
+                    result = await run_tool(
+                        tools.get_kb_overview,
+                        kb_id=arguments["kb_id"]
+                    )
+                    if result is None:
+                        result = {"error": "Knowledge base not found"}
+
+            elif name == "get_learning_path":
+                error = validate_required(["from_concept", "to_concept", "kb_id"])
+                if error:
+                    result = {"error": error}
+                else:
+                    result = await run_tool(
+                        tools.get_learning_path_tool,
+                        from_concept=arguments["from_concept"],
+                        to_concept=arguments["to_concept"],
+                        kb_id=arguments["kb_id"]
+                    )
 
             else:
                 result = {"error": f"Unknown tool: {name}"}
