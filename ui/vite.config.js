@@ -12,6 +12,6 @@ export default defineConfig({
     port: uiConfig.frontend?.vite_port || 5174,
   },
   define: {
-    __NOETIX_API_BASE__: JSON.stringify(uiConfig.frontend?.api_base || 'http://127.0.0.1:8788'),
+    __NOETIX_API_BASE__: JSON.stringify(uiConfig.frontend?.api_base ?? ''),
   },
 });
