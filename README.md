@@ -1,172 +1,182 @@
 # Noetix
 
-Noetix is a self-hosted AI platform that learns from your documents and acts on
-your behalf. Feed it textbooks, papers, manuals, or any content you want it to
-absorb. It builds a searchable knowledge base, then uses that knowledge to
-answer questions, navigate websites, run commands, and carry out multi-step
-tasks through browser control and a CLI agent.
+Noetix is a self-hosted knowledge platform that turns your documents into a memory system any MCP-aware AI client (currently Claude Code) can search, retrieve from, and operate on. Feed it textbooks, papers, lecture videos, manuals, or any content you want available to your agent. It builds searchable knowledge bases, converts content between formats (PDF↔audiobook, video→transcript, …), and exposes everything through MCP tools.
 
-The core idea: teach it what you know, then let it work for you.
+There is no built-in chat layer or LLM. **Claude Code is the agent**, talking to Noetix through stdio MCP servers that bridge into the backend. The backend stays content-focused; the agent stays conversational.
 
-## Quick Start
+## Architecture
 
-Install the CLI globally:
-
-```bash
-npm install -g noetix
+```
+┌──────────────────────────────────────────────────────────┐
+│ Claude Code  (the agent)                                 │
+│  ├── noetix-kb MCP (stdio)         ─┐                    │
+│  ├── noetix-content MCP (stdio)    ─┤                    │
+│  └── (optional) playwright, etc.    │                    │
+└─────────────────────────────────────┼────────────────────┘
+                                      │
+┌─────────────────────────────────────▼────────────────────┐
+│ Knowledge Backend  (FastAPI :8001)                       │
+│  ├── KB CRUD & retrieval (vector + keyword + graph)      │
+│  ├── Content pipeline (PDF/audio/video conversion)       │
+│  └── Library management                                  │
+└────────────────────┬─────────────────────────────────────┘
+                     │
+┌────────────────────▼─────────────────────────────────────┐
+│ Repository Dashboard  (Express :8788, optional)          │
+│  ├── Web UI for browsing KBs, library, jobs              │
+│  └── /v1/* proxy → backend /api/*                        │
+└──────────────────────────────────────────────────────────┘
 ```
 
-Run the setup wizard:
+The MCP servers run as Claude Code stdio children — they're not network services. The backend is a Python FastAPI app. The web UI is a separate static SPA plus a thin Express proxy that gives you a browser view of the same data. Useful for management work; not required for agent operation.
+
+## Install
 
 ```bash
-noetix init
+git clone https://github.com/paulhenkelman/noetix.git
+cd noetix
+./install.sh
 ```
 
-The wizard offers three installation modes:
+The installer detects an existing deployment in the current directory and offers **update**, **alternate location**, or **cancel**. On a fresh install it walks you through three modes:
 
-- **Full** - UI and knowledge backend on a single machine
-- **Frontend only** - UI that connects to a remote backend
-- **Backend only** - Knowledge backend and MCP server (no UI)
+| Mode | Installs | Use when |
+|------|----------|----------|
+| **Full** | Backend + UI + agent MCPs | Single-machine deployment — this host serves data and runs Claude Code. |
+| **Back-end** | Backend + UI only | Data-side server. Agents connect to it from elsewhere. |
+| **Agent** | MCP servers + Claude Code config | Agent-side client. Stores no data locally; talks to a remote backend. |
 
-After setup, start all services:
+Non-interactive (CI / re-deploy):
 
 ```bash
-noetix start
+./install.sh -m full -y                                   # accept all defaults
+./install.sh -m backend -y --backend-port 8001            # data-side, fixed port
+./install.sh -m agent -y --backend-url http://server:8001 # agent pointed at remote
 ```
 
-Open the UI at `http://localhost:8788`.
+The same script handles updates: pull the repo on a deployed host, run `./install.sh -y`, and the installer preserves existing ports, refreshes deps, rebuilds the frontend, and re-registers MCPs idempotently.
 
 ### Prerequisites
 
-- Node.js 18+
-- Python 3.11+ (for the knowledge backend)
-- FFmpeg (for audio and video processing)
-- Codex CLI (`npm install -g @openai/codex`)
-- Docker (optional, for Neo4j graph database)
-
-## How It Works
-
-Noetix has three layers: a browser-based UI, an Express gateway that manages
-the AI agent, and a Python knowledge backend that handles document processing
-and retrieval.
-
-```
-Browser UI  -->  Express Gateway (:8788)  -->  Knowledge Backend (:8001)
-                      |
-                 Codex Agent
-                   |  |  |
-                  MCP Servers
-            (KB, Content, Browser)
-```
-
-The gateway sits between you and the Codex agent. When you send a message, the
-gateway creates a conversation, injects relevant knowledge from your documents,
-and streams the response back with real-time thinking indicators. A post-turn
-verification system detects when the agent fabricates answers or fails to use
-its tools, automatically retrying with a fresh conversation.
+- **Node.js 18+** (all modes)
+- **Python 3.11+, FFmpeg** (back-end / full)
+- **NVIDIA GPU** (recommended for back-end — TTS, STT, OCR are CPU-fallback otherwise)
+- **Claude Code** (agent / full) — install from https://claude.com/claude-code
+- **Docker** (optional — containerised backend, Neo4j graph store)
 
 ## Knowledge System
 
-The knowledge backend converts your documents into searchable, structured
-memory. Upload a PDF and the system will:
+The backend converts documents into structured, searchable memory. Upload a PDF and the pipeline:
 
-1. Extract text (with OCR for scanned pages)
-2. Detect the document's hierarchical structure (parts, chapters, sections)
-3. Split content into chunks and generate embeddings
-4. Store vectors in LanceDB for semantic search
-5. Optionally build a Neo4j graph of entities, concepts, and relationships
+1. Extracts text (OCR for scanned pages)
+2. Detects hierarchical structure (parts, chapters, sections)
+3. Chunks and embeds for vector search (LanceDB)
+4. Optionally builds a Neo4j graph of entities and relationships
 
-Retrieval combines three signals: semantic similarity (vector search), keyword
-matching (full-text index), and graph traversal (entity relationships). Results
-include breadcrumb paths showing exactly where in a document each answer comes
-from.
+Retrieval combines three signals — vector similarity, keyword full-text, and graph traversal — and answers cite their source with a breadcrumb path back to the originating document section.
 
 ### Supported Formats
 
-- **PDF** - text extraction, OCR, structure detection
-- **Audio** (MP3, M4A, M4B) - transcription via faster-whisper
-- **Video** (MP4, MKV, WebM) - transcription and conversion
-- **Archives** (ZIP) - batch processing of bundled files
+- **PDF** — extraction, OCR, structure detection
+- **Audio** (MP3, M4A, M4B) — transcription via faster-whisper
+- **Video** (MP4, MKV, WebM) — transcription plus visual analysis
+- **Archives** (ZIP) — batch process bundled files
 
-### Document Conversion
+### Format Conversion
 
-Beyond building knowledge bases, Noetix converts content between formats. The
-flagship pipeline turns PDFs into M4B audiobooks with chapter markers, using
-Kokoro TTS for natural-sounding speech with GPU acceleration.
+Beyond building memory, Noetix transforms content between formats. The flagship pipeline turns PDFs into M4B audiobooks with chapter markers, using Kokoro TTS for natural-sounding speech with GPU acceleration. Inverse paths exist for video and audio.
 
-## Browser Integration
+## MCP Tools
 
-The agent controls a real browser through Playwright MCP. It can navigate
-pages, fill forms, click buttons, read content, take screenshots, and handle
-multi-step workflows across tabs. This is how Noetix acts on your behalf: it
-reads your course materials from the knowledge base, then applies that
-knowledge by interacting with websites, LMS platforms, or any web application
-you point it at.
+`agent` and `full` installs register two MCP servers with Claude Code (project scope, written into `.mcp.json` at the install root).
 
-## MCP Extensibility
+### noetix-kb — 3 tools
 
-Noetix uses the Model Context Protocol for all tool access. Three MCP servers
-ship by default:
+| Tool | Purpose |
+|------|---------|
+| `kb_list` | List all KBs (name, description, doc count, chunk count) |
+| `kb_search` | Natural-language query against a KB; returns matched chunks with sources |
+| `kb_documents` | Enumerate documents in a specific KB |
 
-- **noetix-kb** - search knowledge bases, list documents, browse structure,
-  explore concepts, find cross-references
-- **noetix-content** - upload files, track conversions, manage the content
-  library, tag and organize materials
-- **noetix-playwright** - browser automation through a CDP endpoint
+### noetix-content — 14 tools
 
-Additional MCP servers can be added through the Codex configuration file. Any
-tool that speaks MCP becomes available to the agent.
+| Tool | Purpose |
+|------|---------|
+| `content_list_downloads` | List downloaded files awaiting processing |
+| `content_upload` | Upload a file for conversion or KB ingest |
+| `content_status` | Poll conversion job |
+| `content_voices` | List available TTS voices |
+| `content_kb_create` | Create a new knowledge base |
+| `content_library_list` | Browse processed content |
+| `content_library_tag` | Update tags on a library item |
+| `content_library_metadata` | Update title / author |
+| `content_library_ingest` | Re-ingest into a different KB |
+| `content_library_delete` | Delete a library item |
+| `content_stage` / `content_staged_list` / `content_staged_clear` | Staging workflow for batch jobs |
+| `content_batch_convert` | Batch-convert staged files into a combined document |
+
+After install, run `claude mcp list` from the install directory to confirm both servers show `✓ Connected`.
+
+## Repository Dashboard
+
+The Express UI at `:8788` is for non-agent workflows: browsing the library, retagging items, watching ingest job progress. It's a vanilla-JS SPA fetching from its own origin (`location.origin`), so the same bundle works whether you load it locally or over the LAN at the deployment host.
+
+The dashboard is optional. If your only use case is "Claude Code → MCP → backend", you can skip the UI install and just run `agent` mode.
 
 ## Configuration
 
-Three TOML files control the system:
+Generated by `noetix init` from templates and gitignored (per-host, may contain secrets):
 
 | File | Controls |
 |------|----------|
-| `noetix.config` | AI model, reasoning effort, MCP server definitions |
-| `ui.config` | Gateway port, backend URL, CORS, frontend settings |
+| `noetix.config` | Project metadata, MCP server settings |
+| `ui.config` | UI port, backend URL, CORS, downloads dir, frontend |
 | `knowledge.config` | Backend port, OpenAI keys, storage paths, Neo4j |
 
-The `noetix init` wizard generates these from templates. Edit them directly to
-adjust ports, swap models, or add MCP servers.
+Also per-host: `.mcp.json` (Claude Code MCP registrations) and `.claude/settings.local.json` (per-machine MCP overrides like `host-control` or `playwright`).
 
 ## Service Management
 
 ```bash
-noetix start              # Start all services
-noetix start frontend     # Start UI only
-noetix start backend      # Start backend only
-noetix stop               # Stop all services
-noetix status             # Check service health
+noetix start              # Start all services for this install
+noetix start frontend     # UI only
+noetix start backend      # Backend only
+noetix stop
+noetix status             # Health check
 ```
 
-Services run as systemd user units and start automatically on boot after the
-initial setup.
+On Linux the installer creates systemd user units and runs `loginctl enable-linger` so services persist across logout (without linger, user services stop the moment your last session closes — a subtle source of "service flap" in fresh deployments).
 
-## Deployment
+## Deployment Patterns
 
-Noetix supports split deployment across machines. A common setup runs the
-knowledge backend on a GPU server (for embeddings, TTS, and transcription) and
-the UI on a lightweight machine closer to the user. The frontend-only install
-mode connects to a remote backend URL, with optional SOCKS proxy support for
-tunneled connections.
+| Pattern | Mode on each machine |
+|---------|---------------------|
+| Single host | `full` on one machine |
+| Split server / client | `backend` on a GPU/data server, `agent` on each agent-side client (laptop, workstation) |
+| Multi-tenant agents | `backend` on the server, `agent` on each user's machine, all pointing at the same backend URL |
+
+`agent` mode is intentionally lightweight: it copies only the MCP server source files needed by Claude Code, doesn't run Python or build the SPA, and stores no data locally. Multiple agent clients share one back-end without contention.
 
 ## Project Structure
 
 ```
 noetix/
-  cli/                  CLI package (noetix init/start/stop/status)
-  ui/
-    src/server/         Express gateway, Codex client, MCP servers
-    src/frontend/       Browser UI (Vite)
-  knowledge/
-    pipeline/           PDF extraction, OCR, TTS, STT, video processing
-    knowledge_base/     Ingestion, retrieval, vector store, graph store
-    mcp_server/         MCP tool definitions and server
-    server.py           FastAPI backend
-  scripts/              Setup and build utilities
+├── cli/                       Installer + service management
+│   ├── commands/init.js       Three-mode installer
+│   ├── lib/checks.js          Prereq detection (node, python, docker, GPU, ffmpeg)
+│   └── templates/             Config templates
+├── ui/
+│   ├── src/server/            Express gateway, kb-mcp-server, content-mcp-server
+│   ├── src/frontend/          Vanilla-JS SPA (Vite-built)
+│   └── __tests__/             Vitest suite
+├── knowledge/                 Python FastAPI backend
+│   ├── pipeline/              PDF/OCR/TTS/STT/video processing
+│   ├── knowledge_base/        Ingestion, vector store (LanceDB), graph (Neo4j)
+│   └── server.py              FastAPI entry point
+├── install.sh                 Bootstrap → noetix init
+└── CLAUDE.md                  Operational notes for AI sessions
 ```
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
