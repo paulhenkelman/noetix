@@ -89,10 +89,12 @@ noetix/
 | `content_batch_convert` | Batch convert staged files into a combined document |
 
 ### Playwright MCP — Browser Automation
-Configured separately (not in this project). Provides browser_navigate, browser_snapshot, browser_click, browser_type, browser_tab_list, etc.
+Configured separately (not in this project). Provides browser_navigate, browser_snapshot, browser_click, browser_type, browser_tabs, browser_evaluate, etc. Configured against an existing Chrome instance via `--cdp-endpoint http://localhost:9222`.
 
-### computer-use — GUI Control
-Claude Code built-in. Screenshot-based desktop/VM control via coordinate clicks.
+### host-control (1 tool) — Silent Screenshots
+Custom MCP at `ui/src/server/computer-use-mcp-server.js`. Exposes a single `screenshot` tool — silent (no shutter sound) and flashless via `silent-screenshot.py`, which claims the `org.gnome.Screenshot` D-Bus name and calls GNOME Shell's privileged Screenshot method with `flash=false`.
+
+Synthetic mouse/keyboard input was attempted but does not work on GNOME Wayland: Mutter silently drops uinput events from virtual devices (verified with evtest). All input tools were stripped to avoid misleading the model. For browser interaction use playwright; for native-app input on Wayland the only realistic path is libei + xdg-desktop-portal RemoteDesktop. See "Operational caveats" below for the full diagnostic. **Only useful on machines with a display and GNOME** — don't enable on pacgpu1.
 
 ## Backend (pacgpu1)
 
@@ -182,6 +184,42 @@ Production deployment is on **pacgpu1** (`10.0.0.50`, ssh alias `paccpu1`):
 - Knowledge backend already running on :8001
 - No noetix UI deployment yet (clean slate)
 - Existing projects: `cs7637`, `StreamingConcierge`
+
+## Operational caveats
+
+### host-control: why input doesn't work on GNOME Wayland
+
+The host-control MCP only exposes `screenshot` because synthetic input is blocked at the compositor level on this host (`XDG_SESSION_TYPE=wayland`, compositor: gnome-shell/Mutter). Every available path was tried and verified failing:
+
+- **xdotool**: emits X11 events through XWayland. Cursor *positioning* works, but synthetic button/key events get delivered to the currently focused X11 window, not the window under the cursor. `xdotool getactivewindow` and `xdotool search --name` both fail because Mutter doesn't expose EWMH `_NET_ACTIVE_WINDOW`.
+- **ydotool 1.x** (built from source, daemon installed): emits events at the kernel uinput level. Verified via `evtest` that `EV_REL`/`EV_KEY` events are produced correctly. Mutter silently drops them — no pointer movement, no clicks land. Deliberate GNOME security posture against virtual input devices.
+- **GNOME Shell `org.gnome.Shell.Eval`**: locked down for non-elevated callers.
+- **`org.gnome.Shell.Screenshot.Screenshot`** direct DBus call: returns `Screenshot is not allowed` unless the caller holds the `org.gnome.Screenshot` well-known bus name. `silent-screenshot.py` exploits this allowlist for capture.
+
+The one thing that does work fully is screen capture via the silent helper.
+
+### How to drive UI when you need to
+
+- **Browser (Chrome)** — use `playwright` MCP. CDP-attached, reliable click/type/snapshot/navigate, no compositor involvement. Covers ~95% of agent tasks.
+- **Native apps** — currently impossible on this machine. Tell the user, do not pretend.
+
+### Future fix paths (do not pursue without explicit user request)
+
+1. **libei + xdg-desktop-portal RemoteDesktop** — the official Wayland-blessed input injection API. GNOME 45+ supports it; the user authorises a portal session once and the client gets an FD for an event stream that Mutter trusts. ~200-300 lines of Python or C. Right answer if input becomes a hard requirement.
+2. **Switch to "GNOME on Xorg" session at login** — ydotool/xdotool both work fully under X11. Major UX change; requires explicit user consent.
+3. **Switch compositors** (Sway, Hyprland, KDE Plasma) — these accept ydotool. Even bigger UX change.
+
+Do not suggest reinstalling ydotool 0.1.8, fiddling with udev rules, or "just trying it again" — that path was fully exhausted with evtest verification proving Mutter is the wall.
+
+### playwright-mcp tab management — the correct usage
+
+`playwright.browser_tabs` works fully in CDP-attached mode despite a now-superseded note that claimed otherwise. Specifically:
+
+- `browser_tabs action=list` enumerates tabs with their playwright-internal index. The output marks `(current)` next to whichever tab Playwright is currently bound to.
+- `browser_tabs action=select index=N` is a **single atomic operation that updates BOTH** Chrome's tab strip (so the user sees the tab change) AND Playwright's internal "current page" pointer (so subsequent `browser_navigate`, `browser_snapshot`, `browser_evaluate`, etc. target the newly-selected tab). No second call required, no `Target.activateTarget` HTTP shorthand needed, no side tools.
+- For selection by URL/title substring: list first, find the index, then select. Two calls but trivial.
+
+Do not build side tools like `cdp-tabs` or `Target.activateTarget` wrappers for tab activation. That path was tried; it's redundant and creates a sync-state problem that doesn't otherwise exist. The original misdiagnosis was likely from selecting an already-current tab (no observable effect).
 
 ## Terminology
 

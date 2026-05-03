@@ -43,3 +43,4 @@ auth.json
 
 # Playwright cache
 .cache/
+.claude/settings.local.json
