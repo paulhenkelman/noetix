@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "noetix-kb": {
+      "command": "node",
+      "args": ["/home/parallels/src/projects/noetix/ui/src/server/kb-mcp-server.js"],
+      "env": {
+        "REMOTE_BASE": "http://10.0.0.50:8001"
+      }
+    },
+    "noetix-content": {
+      "command": "node",
+      "args": ["/home/parallels/src/projects/noetix/ui/src/server/content-mcp-server.js"],
+      "env": {
+        "REMOTE_BASE": "http://10.0.0.50:8001",
+        "DOWNLOADS_DIR": "/home/parallels/.cache/noetix-playwright"
+      }
+    }
+  }
+}

@@ -10,8 +10,8 @@ const program = new Command();
 
 program
   .name('noetix')
-  .description('AI-powered knowledge platform')
-  .version('0.1.0');
+  .description('Knowledge platform — document management, content processing, and MCP tool services')
+  .version('0.2.0');
 
 program
   .command('init')

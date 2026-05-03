@@ -13,8 +13,6 @@ import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import {
-  isCodexInstalled, getCodexVersion, isCodexLoggedIn,
-  installCodex, launchCodexLogin, loginCodexWithApiKey,
   isDockerInstalled, isDockerRunning, hasNvidiaGpu,
   isFfmpegInstalled, isNodeVersionOk, isPythonInstalled, getPythonVersion,
   isPortInUse, findAvailablePort,
@@ -119,7 +117,13 @@ export async function init(options) {
   // =================================================================
 
   if (needsFrontend) {
-    await checkCodex(auto);
+    // Check Node.js version
+    if (!isNodeVersionOk()) {
+      console.log(chalk.red('  Node.js 18+ is required'));
+      process.exit(1);
+    }
+    console.log(chalk.green(`  Node.js: ${process.versions.node}`));
+    console.log('');
   }
 
   if (needsBackend) {
@@ -256,22 +260,6 @@ export async function init(options) {
   }
 
   // =================================================================
-  // Generate codex config
-  // =================================================================
-
-  if (needsFrontend) {
-    const spinner = ora('Generating codex config').start();
-    try {
-      execSync(`node ${path.join(installDir, 'scripts', 'generate-codex-config.js')}`, {
-        cwd: installDir, stdio: 'pipe',
-      });
-      spinner.succeed('Codex config generated (~/.codex/config.toml)');
-    } catch (err) {
-      spinner.warn('Codex config generation skipped (run manually: node scripts/generate-codex-config.js)');
-    }
-  }
-
-  // =================================================================
   // Create systemd services
   // =================================================================
 
@@ -360,89 +348,9 @@ export async function init(options) {
 }
 
 // -----------------------------------------------------------------
-// Codex prerequisite check
+// LLM provider prerequisite check
 // -----------------------------------------------------------------
 
-async function checkCodex(auto = false) {
-  console.log(chalk.dim('Checking prerequisites...'));
-
-  if (!isCodexInstalled()) {
-    console.log(chalk.yellow('  Codex CLI is not installed.'));
-    const doInstall = auto || await confirm({
-      message: 'Install Codex CLI now? (npm install -g @openai/codex)',
-      default: true,
-    });
-    if (doInstall) {
-      const spinner = ora('Installing Codex CLI').start();
-      try {
-        installCodex();
-        spinner.succeed(`Codex CLI installed (${getCodexVersion()})`);
-      } catch (err) {
-        spinner.fail('Failed to install Codex CLI');
-        console.log(chalk.red(`  Error: ${err.message}`));
-        console.log(chalk.dim('  Install manually: npm install -g @openai/codex'));
-        if (!auto) {
-          const proceed = await confirm({ message: 'Continue without Codex?', default: false });
-          if (!proceed) process.exit(1);
-        }
-      }
-    } else {
-      console.log(chalk.dim('  Skipping Codex install. Install later: npm install -g @openai/codex'));
-    }
-  } else {
-    console.log(chalk.green(`  Codex CLI: ${getCodexVersion()}`));
-  }
-
-  // Check login
-  if (isCodexInstalled() && !isCodexLoggedIn()) {
-    if (auto) {
-      console.log(chalk.yellow('  Codex is not logged in. Run `codex login` to authenticate.'));
-    } else {
-    console.log(chalk.yellow('  Codex is not logged in.'));
-    const loginMethod = await select({
-      message: 'How would you like to authenticate Codex?',
-      choices: [
-        { name: 'Browser login (opens browser for OAuth)', value: 'browser' },
-        { name: 'API key (enter your OpenAI API key)', value: 'apikey' },
-        { name: 'Skip (configure later)', value: 'skip' },
-      ],
-    });
-    if (loginMethod === 'browser') {
-      console.log(chalk.dim('  Opening browser for Codex authentication...'));
-      launchCodexLogin();
-      if (isCodexLoggedIn()) {
-        console.log(chalk.green('  Codex login successful'));
-      } else {
-        console.log(chalk.yellow('  Codex login may not have completed. You can retry with: codex login'));
-      }
-    } else if (loginMethod === 'apikey') {
-      const apiKey = await password({
-        message: 'OpenAI API key',
-        mask: '*',
-      });
-      if (apiKey) {
-        loginCodexWithApiKey(apiKey);
-        if (isCodexLoggedIn()) {
-          console.log(chalk.green('  Codex login successful'));
-        } else {
-          console.log(chalk.yellow('  Codex login may not have completed. You can retry with: codex login --with-api-key'));
-        }
-      }
-    } else {
-      console.log(chalk.dim('  Log in later: codex login'));
-    }
-    } // end else (not auto)
-  } else if (isCodexInstalled()) {
-    console.log(chalk.green('  Codex: logged in'));
-  }
-
-  if (!isNodeVersionOk()) {
-    console.log(chalk.red('  Node.js 18+ is required'));
-    process.exit(1);
-  }
-
-  console.log('');
-}
 
 // -----------------------------------------------------------------
 // Backend prerequisite check
@@ -499,15 +407,6 @@ async function installFrontend(installDir, config) {
     } else {
       spinner.warn('Frontend source not found in CLI package — skipping copy');
       return;
-    }
-  }
-
-  // Copy scripts/ for codex config generation
-  const scriptsDir = path.join(installDir, 'scripts');
-  if (!fs.existsSync(scriptsDir)) {
-    const cliScriptsDir = path.join(CLI_ROOT, 'scripts');
-    if (fs.existsSync(cliScriptsDir)) {
-      fs.cpSync(cliScriptsDir, scriptsDir, { recursive: true });
     }
   }
 

@@ -69,6 +69,8 @@ class GraphStore:
             "CREATE CONSTRAINT chapter_id IF NOT EXISTS FOR (c:Chapter) REQUIRE c.id IS UNIQUE",
             "CREATE CONSTRAINT chunk_id IF NOT EXISTS FOR (c:Chunk) REQUIRE c.id IS UNIQUE",
             "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE",
+            # Section constraint
+            "CREATE CONSTRAINT section_id IF NOT EXISTS FOR (s:Section) REQUIRE s.id IS UNIQUE",
             # Course hierarchy constraints
             "CREATE CONSTRAINT course_id IF NOT EXISTS FOR (c:Course) REQUIRE c.id IS UNIQUE",
             "CREATE CONSTRAINT module_id IF NOT EXISTS FOR (m:Module) REQUIRE m.id IS UNIQUE",
@@ -84,6 +86,10 @@ class GraphStore:
             "CREATE INDEX entity_kb_id IF NOT EXISTS FOR (e:Entity) ON (e.kb_id)",
             "CREATE INDEX entity_name IF NOT EXISTS FOR (e:Entity) ON (e.name)",
             "CREATE INDEX entity_type IF NOT EXISTS FOR (e:Entity) ON (e.type)",
+            # Section indexes
+            "CREATE INDEX section_kb_id IF NOT EXISTS FOR (s:Section) ON (s.kb_id)",
+            "CREATE INDEX section_parent_id IF NOT EXISTS FOR (s:Section) ON (s.parent_id)",
+            "CREATE INDEX section_doc_id IF NOT EXISTS FOR (s:Section) ON (s.document_id)",
             # Course hierarchy indexes
             "CREATE INDEX course_kb_id IF NOT EXISTS FOR (c:Course) ON (c.kb_id)",
             "CREATE INDEX course_code IF NOT EXISTS FOR (c:Course) ON (c.code)",
@@ -101,6 +107,9 @@ class GraphStore:
                FOR (d:Document) ON EACH [d.title, d.author]""",
             """CREATE FULLTEXT INDEX entity_search IF NOT EXISTS
                FOR (e:Entity) ON EACH [e.name]""",
+            # Section full-text search
+            """CREATE FULLTEXT INDEX section_search IF NOT EXISTS
+               FOR (s:Section) ON EACH [s.title]""",
             # Course hierarchy full-text search
             """CREATE FULLTEXT INDEX course_search IF NOT EXISTS
                FOR (c:Course) ON EACH [c.title, c.code, c.description]""",
@@ -1341,3 +1350,292 @@ class GraphStore:
 
         logger.info(f"Deleted course {course_id}: {counts}")
         return counts
+
+    # === Section (Hierarchical Document Structure) Operations ===
+
+    def add_section(self, kb_id: str, section, document_id: str):
+        """
+        Create Section node with parent/document relationships.
+
+        Args:
+            kb_id: Knowledge base ID
+            section: Section model (or dict with id, title, level, etc.)
+            document_id: Parent document ID
+        """
+        sid = section.id if hasattr(section, 'id') else section['id']
+        parent_id = section.parent_id if hasattr(section, 'parent_id') else section.get('parent_id')
+        level = section.level if hasattr(section, 'level') else section.get('level', 0)
+        section_type = section.section_type if hasattr(section, 'section_type') else section.get('section_type', 'chapter')
+        number = section.number if hasattr(section, 'number') else section.get('number', 0)
+        title = section.title if hasattr(section, 'title') else section.get('title', '')
+        start_page = section.start_page if hasattr(section, 'start_page') else section.get('start_page', 0)
+        end_page = section.end_page if hasattr(section, 'end_page') else section.get('end_page')
+        order = section.order if hasattr(section, 'order') else section.get('order', 0)
+
+        with self._session() as session:
+            session.run(
+                """
+                MERGE (s:Section {id: $id})
+                SET s.kb_id = $kb_id,
+                    s.document_id = $document_id,
+                    s.parent_id = $parent_id,
+                    s.level = $level,
+                    s.section_type = $section_type,
+                    s.number = $number,
+                    s.title = $title,
+                    s.start_page = $start_page,
+                    s.end_page = $end_page,
+                    s.order = $order
+                """,
+                id=sid,
+                kb_id=kb_id,
+                document_id=document_id,
+                parent_id=parent_id or "",
+                level=level,
+                section_type=section_type,
+                number=number,
+                title=title,
+                start_page=start_page,
+                end_page=end_page,
+                order=order
+            )
+
+            if parent_id:
+                session.run(
+                    """
+                    MATCH (p:Section {id: $parent_id})
+                    MATCH (s:Section {id: $section_id})
+                    MERGE (p)-[:HAS_SUBSECTION]->(s)
+                    """,
+                    parent_id=parent_id,
+                    section_id=sid
+                )
+            else:
+                session.run(
+                    """
+                    MATCH (d:Document {id: $document_id})
+                    MATCH (s:Section {id: $section_id})
+                    MERGE (d)-[:HAS_SECTION]->(s)
+                    """,
+                    document_id=document_id,
+                    section_id=sid
+                )
+
+        logger.debug(f"Added section '{title}' (level {level}) to document {document_id}")
+
+    def add_section_chunks(self, kb_id: str, section_id: str, chunk_ids: list[str]):
+        """Link chunks to their containing section."""
+        if not chunk_ids:
+            return
+
+        with self._session() as session:
+            for chunk_id in chunk_ids:
+                session.run(
+                    """
+                    MATCH (s:Section {id: $section_id})
+                    MATCH (c:Chunk {id: $chunk_id})
+                    MERGE (s)-[:CONTAINS]->(c)
+                    """,
+                    section_id=section_id,
+                    chunk_id=chunk_id
+                )
+
+    def get_document_structure(self, kb_id: str, document_id: str, max_depth: int = 5) -> list[dict]:
+        """
+        Return full hierarchical tree of sections for a document.
+
+        Args:
+            kb_id: Knowledge base ID
+            document_id: Document ID
+            max_depth: Maximum nesting depth to return
+
+        Returns:
+            List of top-level section dicts with nested 'children' lists
+        """
+        with self._session() as session:
+            # Get all sections for this document
+            result = session.run(
+                """
+                MATCH (s:Section {document_id: $document_id, kb_id: $kb_id})
+                OPTIONAL MATCH (s)-[:CONTAINS]->(c:Chunk)
+                WITH s, count(c) as chunk_count
+                RETURN s.id as id, s.parent_id as parent_id, s.level as level,
+                       s.section_type as section_type, s.number as number,
+                       s.title as title, s.start_page as start_page,
+                       s.end_page as end_page, s.order as `order`,
+                       chunk_count
+                ORDER BY s.level, s.order
+                """,
+                document_id=document_id,
+                kb_id=kb_id
+            )
+
+            sections = [dict(record) for record in result]
+
+        if not sections:
+            return []
+
+        # Build tree from flat list
+        by_id = {s["id"]: {**s, "children": []} for s in sections}
+        roots = []
+
+        for s in sections:
+            node = by_id[s["id"]]
+            parent = s.get("parent_id")
+            if parent and parent in by_id and node["level"] <= max_depth:
+                by_id[parent]["children"].append(node)
+            else:
+                roots.append(node)
+
+        return roots
+
+    def get_section_content(self, kb_id: str, section_id: str, include_chunks: bool = False) -> Optional[dict]:
+        """
+        Get section metadata, children titles, and optionally chunk texts.
+
+        Args:
+            kb_id: Knowledge base ID
+            section_id: Section ID
+            include_chunks: Whether to include full chunk texts
+
+        Returns:
+            Section dict with metadata and children info
+        """
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (s:Section {id: $section_id, kb_id: $kb_id})
+                OPTIONAL MATCH (s)-[:HAS_SUBSECTION]->(child:Section)
+                WITH s, child ORDER BY child.order
+                WITH s, collect(CASE WHEN child IS NOT NULL
+                    THEN {id: child.id, title: child.title, level: child.level,
+                          section_type: child.section_type, start_page: child.start_page}
+                    END) as children
+                OPTIONAL MATCH (s)-[:CONTAINS]->(c:Chunk)
+                WITH s, children, count(c) as chunk_count
+                RETURN s {.*, children: [x IN children WHERE x IS NOT NULL],
+                          chunk_count: chunk_count}
+                """,
+                section_id=section_id,
+                kb_id=kb_id
+            ).single()
+
+            if not result:
+                return None
+
+            section_data = dict(result[0])
+
+            if include_chunks:
+                chunk_result = session.run(
+                    """
+                    MATCH (s:Section {id: $section_id})-[:CONTAINS]->(c:Chunk)
+                    RETURN c.id as id, c.text as text, c.page_number as page_number,
+                           c.position as position
+                    ORDER BY c.position
+                    """,
+                    section_id=section_id
+                )
+                section_data["chunks"] = [dict(r) for r in chunk_result]
+
+            return section_data
+
+    def get_section_by_title(self, kb_id: str, document_id: str, section_title: str) -> Optional[dict]:
+        """Find a section by document ID and title match."""
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (s:Section {document_id: $document_id, kb_id: $kb_id})
+                WHERE toLower(s.title) CONTAINS toLower($title)
+                RETURN s {.*}
+                LIMIT 1
+                """,
+                document_id=document_id,
+                kb_id=kb_id,
+                title=section_title
+            ).single()
+
+            if result:
+                return dict(result[0])
+            return None
+
+    def get_chunk_section_path(self, kb_id: str, chunk_id: str) -> list[str]:
+        """
+        Walk CONTAINS relationships from a chunk up to the Document to build a breadcrumb path.
+
+        Returns:
+            List of section titles from top to bottom, e.g. ["Part I", "Ch 3", "Section 3.2"]
+        """
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (c:Chunk {id: $chunk_id, kb_id: $kb_id})<-[:CONTAINS]-(s:Section)
+                WITH s
+                MATCH path = (s)<-[:HAS_SUBSECTION*0..10]-(ancestor:Section)
+                WHERE NOT EXISTS { MATCH (ancestor)<-[:HAS_SUBSECTION]-(:Section) }
+                WITH nodes(path) as sections
+                UNWIND sections as sec
+                WITH sec ORDER BY sec.level
+                RETURN collect(sec.title) as path
+                """,
+                chunk_id=chunk_id,
+                kb_id=kb_id
+            ).single()
+
+            if result and result["path"]:
+                return list(result["path"])
+            return []
+
+    def get_chunk_related_concepts(self, kb_id: str, chunk_id: str) -> list[str]:
+        """Get entity names related to a chunk via its section's MENTIONS relationships."""
+        with self._session() as session:
+            result = session.run(
+                """
+                MATCH (c:Chunk {id: $chunk_id, kb_id: $kb_id})<-[:CONTAINS]-(s:Section)
+                MATCH (s)-[:MENTIONS]->(e:Entity)
+                RETURN DISTINCT e.name as name
+                ORDER BY e.name
+                LIMIT 20
+                """,
+                chunk_id=chunk_id,
+                kb_id=kb_id
+            )
+            return [record["name"] for record in result]
+
+    def find_entity_cross_references(self, kb_id: str, entity_name: str,
+                                      entity_type: Optional[str] = None,
+                                      kb_ids: Optional[list[str]] = None) -> list[dict]:
+        """
+        Find all documents and sections mentioning a given entity.
+
+        Returns:
+            List of {document_id, document_title, sections: [{title, chunk_count, start_page}]}
+        """
+        search_kb_ids = kb_ids or [kb_id]
+        type_filter = "AND e.type = $entity_type" if entity_type else ""
+
+        results = []
+        with self._session() as session:
+            for kid in search_kb_ids:
+                result = session.run(
+                    f"""
+                    MATCH (e:Entity {{kb_id: $kb_id}})
+                    WHERE toLower(e.name) = toLower($entity_name) {type_filter}
+                    MATCH (d:Document)-[:MENTIONS]->(e)
+                    OPTIONAL MATCH (d)-[:HAS_SECTION|HAS_CHAPTER]->(s)
+                    OPTIONAL MATCH (s)-[:CONTAINS]->(c:Chunk)
+                    WITH d, s, count(c) as chunk_count
+                    ORDER BY s.start_page
+                    WITH d, collect(CASE WHEN s IS NOT NULL
+                        THEN {{title: s.title, chunk_count: chunk_count, start_page: s.start_page}}
+                        END) as sections
+                    RETURN d.id as document_id, d.title as document_title,
+                           [x IN sections WHERE x IS NOT NULL] as sections
+                    """,
+                    kb_id=kid,
+                    entity_name=entity_name,
+                    entity_type=entity_type
+                )
+                for record in result:
+                    results.append(dict(record))
+
+        return results

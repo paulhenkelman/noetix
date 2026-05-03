@@ -6,7 +6,7 @@ graph-based retrieval (Neo4j).
 """
 
 from .models import (
-    KnowledgeBase, Document, Chapter, Chunk, SearchResult, Entity,
+    KnowledgeBase, Document, Chapter, Section, Chunk, SearchResult, Entity,
     ENTITY_TYPES, Course, Module, Topic, Concept, LibraryItemTags
 )
 from .registry import KBRegistry
@@ -44,6 +44,7 @@ __all__ = [
     'KnowledgeBase',
     'Document',
     'Chapter',
+    'Section',
     'Chunk',
     'SearchResult',
     'Entity',

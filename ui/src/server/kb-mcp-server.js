@@ -5,7 +5,7 @@
  * Exposes the Noetix backend KB API as MCP tools over stdio transport.
  * Tools:
  *   - kb_list          — List all accessible knowledge bases with title, author, doc count
- *   - kb_search        — Query a KB with a natural language question (RAG retrieval)
+ *   - kb_search        — Query a KB with a natural language question (memory retrieval)
  *   - kb_documents     — List all documents in a specific KB
  *
  * Configuration: reads ui.config via config.js; env vars override.

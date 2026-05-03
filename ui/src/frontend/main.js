@@ -2,19 +2,15 @@ const API_BASE = typeof __NOETIX_API_BASE__ !== 'undefined' ? __NOETIX_API_BASE_
 const LS_KEY = 'noetix.chatlite.v2';
 
 const state = {
-  tab: 'chat',
+  tab: 'library',
   kbs: [],
-  sessions: [],
-  activeSessionId: null,
   activeKbIds: [],
-  messages: [],
   library: [],
   filters: { q: '', author: '', hasKb: '', org: '', course: '', tag: '' },
   inputQueue: [],
-  thinkingDepth: 'xhigh',
   filterOptions: null,
   kbDocs: {},
-  kbDeps: {}
+  kbDeps: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -32,10 +28,8 @@ function persist() {
     LS_KEY,
     JSON.stringify({
       tab: state.tab,
-      activeSessionId: state.activeSessionId,
       activeKbIds: state.activeKbIds,
       inputQueueLibraryIds: state.inputQueue.filter(e => e.type === 'library').map(e => e.id),
-      thinkingDepth: state.thinkingDepth
     })
   );
 }
@@ -43,10 +37,8 @@ function persist() {
 function hydrate() {
   try {
     const x = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-    state.tab = x.tab || 'chat';
-    state.activeSessionId = x.activeSessionId || null;
+    state.tab = x.tab || 'library';
     state.activeKbIds = Array.isArray(x.activeKbIds) ? x.activeKbIds : (x.activeKbId ? [x.activeKbId] : []);
-    state.thinkingDepth = x.thinkingDepth || 'xhigh';
     state._pendingQueueIds = x.inputQueueLibraryIds || [];
   } catch {}
 }
@@ -61,21 +53,9 @@ function css() {
     .top button.active{background:#2f56ad}
     .wrap{padding:10px;height:calc(100vh - 58px);box-sizing:border-box}
 
-    .chat{display:grid;grid-template-columns:260px 1fr;gap:10px;height:100%}
     .panel{border:1px solid #233b6b;border-radius:10px;background:#101a34;overflow:hidden;min-height:0}
     .panel-head{padding:8px;border-bottom:1px solid #233b6b;display:flex;gap:6px;align-items:center}
     .panel-body{padding:8px;overflow:auto;height:100%;min-height:0}
-
-    .thread-row{display:grid;grid-template-columns:1fr auto;gap:6px;margin-bottom:6px}
-    .threads button{width:100%;text-align:left;background:#15264d;border:1px solid #2a4373;color:#fff;border-radius:8px;padding:7px;cursor:pointer}
-    .threads button.active{background:#2f56ad}
-    .threads .del{padding:0 8px;background:#5a2230;border-color:#7c3040}
-
-    .chat-main{display:flex;flex-direction:column;height:100%;min-height:0}
-    .msgs{flex:1;overflow:auto;padding:8px;min-height:0}
-    .msg{padding:7px 8px;border-radius:8px;margin-bottom:6px;white-space:pre-wrap}
-    .u{background:#17365f}.a{background:#1c3f30}.e{background:#5a2230}
-    .composer{padding:8px;border-top:1px solid #233b6b;display:grid;grid-template-columns:1fr auto;gap:8px;flex:0 0 auto;background:#101a34}
 
     input,select,textarea{background:#0e1834;border:1px solid #2e487a;color:#fff;border-radius:8px;padding:7px}
     textarea{resize:none;min-height:42px;max-height:120px}
@@ -88,12 +68,6 @@ function css() {
     .tile .actions{display:flex;gap:6px;margin-top:8px}
     .tile button{background:#1c2f5a;color:#fff;border:1px solid #2f4676;border-radius:8px;padding:5px 8px;cursor:pointer;font-size:12px}
     .tile button.primary{background:#2f56ad}
-
-    .left-nav{display:flex;flex-direction:column}
-    .left-nav .panel-body.threads{flex:1;overflow:auto}
-    .thinking-strip{padding:6px 8px;border-top:1px solid #233b6b;font-size:11px;color:#7ea8d4;line-height:1.4;max-height:60px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:0 0 auto}
-    .thinking-strip .status{color:#5bc48a}
-    .thinking-strip .idle{color:#556688}
     .input-box{max-width:800px}
     .tile button.danger{background:#5a1c1c;border-color:#764040}
     .tile button.danger:hover{background:#7a2020}
@@ -102,12 +76,6 @@ function css() {
     .tile .output-files .del-output{color:#aa4444;cursor:pointer;font-size:11px;margin-left:2px;border:none;background:none;padding:0 2px}
     .tile .output-files .del-output:hover{color:#ff4444}
     .tile.orphan{border-color:#7a6a20;background:#1a1800}
-    .kb-multi-select{position:relative;display:inline-block}
-    .kb-multi-select .kb-toggle{font-size:12px;padding:4px 8px;cursor:pointer;background:#1a2744;color:#ccc;border:1px solid #233b6b;border-radius:4px}
-    .kb-multi-select .kb-dropdown{position:absolute;top:100%;left:0;z-index:10;background:#101828;border:1px solid #233b6b;border-radius:4px;padding:4px;min-width:200px;max-height:220px;overflow-y:auto}
-    .kb-multi-select .kb-opt{display:block;padding:3px 6px;font-size:12px;color:#ccc;cursor:pointer;white-space:nowrap}
-    .kb-multi-select .kb-opt:hover{background:#1a2744}
-    .kb-multi-select .kb-opt input{margin-right:6px}
     .kb-deps{margin-top:6px;padding-top:6px;border-top:1px solid #233b6b}
     .kb-deps label{display:block;font-size:11px;padding:2px 4px;color:#8899aa;cursor:pointer}
     .kb-deps label:hover{color:#ccc}
@@ -147,7 +115,6 @@ function css() {
 function renderShell() {
   $('app').innerHTML = `${css()}
   <div class="top">
-    <button id="tab-chat">Chat</button>
     <button id="tab-input">Input</button>
     <button id="tab-library">Library</button>
     <button id="tab-kb">KB</button>
@@ -156,13 +123,11 @@ function renderShell() {
   </div>
   <div class="wrap" id="view"></div>`;
 
-  $('tab-chat').classList.toggle('active', state.tab === 'chat');
   $('tab-input').classList.toggle('active', state.tab === 'input');
   $('tab-library').classList.toggle('active', state.tab === 'library');
   $('tab-kb').classList.toggle('active', state.tab === 'kb');
   $('tab-jobs').classList.toggle('active', state.tab === 'jobs');
 
-  $('tab-chat').onclick = () => switchTab('chat');
   $('tab-input').onclick = () => switchTab('input');
   $('tab-library').onclick = () => switchTab('library');
   $('tab-kb').onclick = () => switchTab('kb');
@@ -174,257 +139,10 @@ function switchTab(tab) {
   state.tab = tab;
   persist();
   renderShell();
-  if (tab === 'chat') renderChat();
-  else if (tab === 'input') renderInput();
+  if (tab === 'input') renderInput();
   else if (tab === 'kb') renderKb();
   else if (tab === 'jobs') renderJobs();
   else renderLibrary();
-}
-
-function renderChat() {
-  $('view').innerHTML = `
-  <div class="chat">
-    <div class="panel left-nav">
-      <div class="panel-head"><button id="new-thread">+ New</button></div>
-      <div class="panel-body threads" id="threads"></div>
-      <div class="thinking-strip" id="thinking"><span class="idle">Idle</span></div>
-    </div>
-
-    <div class="panel chat-main">
-      <div class="panel-head">
-        <select id="thinking-select" title="Thinking depth" style="width:70px;font-size:12px;padding:4px"></select>
-        <div id="kb-select" class="kb-multi-select"></div>
-        <span class="hint">Enter to send • Shift+Enter newline</span>
-      </div>
-      <div class="msgs" id="msgs"></div>
-      <div class="composer">
-        <textarea id="chat-input" placeholder="Message"></textarea>
-        <button id="send">Send</button>
-      </div>
-    </div>
-  </div>`;
-
-  $('new-thread').onclick = createThread;
-  $('send').onclick = sendMessage;
-
-  // Thinking depth selector
-  const THINKING_LEVELS = [
-    { value: 'xhigh', label: 'Max' },
-    { value: 'high', label: 'High' },
-    { value: 'medium', label: 'Med' }
-  ];
-  $('thinking-select').innerHTML = THINKING_LEVELS.map(l =>
-    `<option value="${l.value}" ${l.value === state.thinkingDepth ? 'selected' : ''}>${l.label}</option>`
-  ).join('');
-  $('thinking-select').onchange = (e) => {
-    state.thinkingDepth = e.target.value;
-    persist();
-  };
-
-  // KB multi-select handled by drawKbSelect()
-
-  const input = $('chat-input');
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-
-  drawKbSelect();
-  drawThreads();
-  drawMessages();
-}
-
-function drawKbSelect() {
-  const el = $('kb-select');
-  if (!el) return;
-  const selected = new Set(state.activeKbIds);
-  const label = selected.size === 0 ? 'No KB' : selected.size === state.kbs.length ? 'All KBs' : `${selected.size} KB${selected.size > 1 ? 's' : ''}`;
-  el.innerHTML = `<button class="kb-toggle">${esc(label)} ▾</button>
-    <div class="kb-dropdown" style="display:none">${state.kbs.map(k =>
-      `<label class="kb-opt"><input type="checkbox" value="${k.id}" ${selected.has(k.id) ? 'checked' : ''}> ${esc(k.name)}</label>`
-    ).join('')}</div>`;
-
-  const toggle = el.querySelector('.kb-toggle');
-  const dropdown = el.querySelector('.kb-dropdown');
-  toggle.onclick = () => { dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none'; };
-  el.querySelectorAll('input[type=checkbox]').forEach(cb => {
-    cb.onchange = () => {
-      state.activeKbIds = [...el.querySelectorAll('input:checked')].map(c => c.value);
-      toggle.textContent = (state.activeKbIds.length === 0 ? 'No KB' : state.activeKbIds.length === state.kbs.length ? 'All KBs' : `${state.activeKbIds.length} KB${state.activeKbIds.length > 1 ? 's' : ''}`) + ' ▾';
-      persist();
-    };
-  });
-  // Close on outside click
-  document.addEventListener('click', (e) => { if (!el.contains(e.target)) dropdown.style.display = 'none'; }, { once: false });
-}
-
-function drawThreads() {
-  $('threads').innerHTML = state.sessions
-    .slice(0, 120)
-    .map(
-      (s) => `<div class="thread-row">
-        <button data-id="${s.id}" class="thread-open ${s.id === state.activeSessionId ? 'active' : ''}">${esc(s.title)}</button>
-        <button class="del" data-del="${s.id}" title="Delete thread">×</button>
-      </div>`
-    )
-    .join('');
-
-  [...$('threads').querySelectorAll('.thread-open')].forEach((b) => {
-    b.onclick = async () => {
-      state.activeSessionId = b.dataset.id;
-      persist();
-      state.messages = (await api(`/v1/chat/sessions/${state.activeSessionId}/messages`)).items || [];
-      drawThreads();
-      drawMessages();
-    };
-  });
-
-  [...$('threads').querySelectorAll('[data-del]')].forEach((b) => {
-    b.onclick = async () => {
-      const id = b.dataset.del;
-      if (!confirm('Delete this chat thread?')) return;
-      try {
-        await api(`/v1/chat/sessions/${id}`, { method: 'DELETE' });
-        state.sessions = state.sessions.filter((s) => s.id !== id);
-        if (state.activeSessionId === id) {
-          state.activeSessionId = state.sessions[0]?.id || null;
-          state.messages = state.activeSessionId
-            ? (await api(`/v1/chat/sessions/${state.activeSessionId}/messages`)).items || []
-            : [];
-        }
-        persist();
-        drawThreads();
-        drawMessages();
-      } catch (e) {
-        alert(`Delete failed: ${e.message}`);
-      }
-    };
-  });
-}
-
-function drawMessages() {
-  const box = $('msgs');
-  box.innerHTML = state.messages
-    .slice(-80)
-    .map((m) => `<div class="msg ${m.role === 'assistant' ? 'a' : 'u'}"><b>${m.role}:</b> ${esc(m.content || '')}</div>`)
-    .join('');
-  box.scrollTop = box.scrollHeight;
-}
-
-async function createThread() {
-  const title = prompt('Thread title', `Thread ${state.sessions.length + 1}`)?.trim();
-  if (!title) return;
-  const s = await api('/v1/chat/sessions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ title, default_kb_scope: { mode: 'selected', kb_ids: state.activeKbIds } })
-  });
-  state.sessions.unshift(s);
-  state.activeSessionId = s.id;
-  state.messages = [];
-  persist();
-  drawThreads();
-  drawMessages();
-}
-
-async function sendMessage() {
-  if (!state.activeSessionId) return alert('Create/select a thread first');
-
-  const input = $('chat-input');
-  const content = input.value.trim();
-  if (!content) return;
-
-  input.value = '';
-  state.messages.push({ role: 'user', content });
-  drawMessages();
-
-  const sendBtn = $('send');
-  if (sendBtn) sendBtn.disabled = true;
-  const thinking = $('thinking');
-  if (thinking) thinking.innerHTML = '<span class="status">Starting...</span>';
-
-  try {
-    const response = await fetch(`${API_BASE}/v1/chat/sessions/${state.activeSessionId}/messages`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'accept': 'text/event-stream' },
-      body: JSON.stringify({ content, effort: state.thinkingDepth, kb_scope: state.activeKbIds.length ? { mode: 'selected', kb_ids: state.activeKbIds, top_k: 8 } : { mode: 'none' } })
-    });
-
-    const ct = response.headers.get('content-type') || '';
-
-    if (ct.includes('text/event-stream')) {
-      // SSE streaming mode
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events from buffer
-        const lines = buffer.split('\n');
-        buffer = lines.pop(); // keep incomplete last line in buffer
-
-        let currentEvent = '';
-        let currentData = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7);
-          } else if (line.startsWith('data: ')) {
-            currentData = line.slice(6);
-          } else if (line === '' && currentEvent && currentData) {
-            // Complete SSE event
-            let parsed;
-            try { parsed = JSON.parse(currentData); } catch { parsed = currentData; }
-            handleSSEEvent(currentEvent, parsed);
-            currentEvent = '';
-            currentData = '';
-          }
-        }
-      }
-    } else {
-      // JSON fallback (non-SSE)
-      const r = await response.json();
-      if (!response.ok) throw new Error(r?.message || r?.detail || `HTTP ${response.status}`);
-      state.messages.push(r.assistant_message || { role: 'assistant', content: '(empty)' });
-      drawMessages();
-    }
-  } catch (e) {
-    state.messages.push({ role: 'assistant', content: `Error: ${e.message}` });
-    drawMessages();
-  }
-
-  if (sendBtn) sendBtn.disabled = false;
-  if (thinking) thinking.innerHTML = '<span class="idle">Idle</span>';
-}
-
-function handleSSEEvent(event, data) {
-  const thinking = $('thinking');
-  switch (event) {
-    case 'thinking':
-      if (thinking) thinking.innerHTML = esc(data.delta || '');
-      break;
-    case 'status':
-      if (thinking) thinking.innerHTML = `<span class="status">${esc(data.text || '')}</span>`;
-      break;
-    case 'text':
-      if (thinking) thinking.innerHTML = '<span class="status">Responding...</span>';
-      break;
-    case 'done':
-      state.messages.push(data.assistant_message || { role: 'assistant', content: '(empty)' });
-      drawMessages();
-      if (thinking) thinking.innerHTML = '<span class="idle">Idle</span>';
-      break;
-    case 'error':
-      state.messages.push({ role: 'assistant', content: `Error: ${data.message || 'Unknown error'}` });
-      drawMessages();
-      if (thinking) thinking.innerHTML = '<span class="idle">Idle</span>';
-      break;
-  }
 }
 
 function formatFileSize(bytes) {
@@ -1170,15 +888,9 @@ async function loadLibrary() {
   if (state.tab === 'library' && $('tiles')) drawTiles();
 }
 
-async function bootstrap() {
-  hydrate();
+async function doBootstrap() {
   state.kbs = await api('/v1/knowledge-bases');
   try { state.kbDeps = await api('/v1/knowledge-bases/dependencies'); } catch { state.kbDeps = {}; }
-  state.sessions = (await api('/v1/chat/sessions')).items || [];
-  if (!state.activeSessionId && state.sessions.length) state.activeSessionId = state.sessions[0].id;
-  if (state.activeSessionId) {
-    state.messages = (await api(`/v1/chat/sessions/${state.activeSessionId}/messages`)).items || [];
-  }
   await loadLibrary();
   // Rebuild inputQueue from persisted library IDs
   if (state._pendingQueueIds?.length) {
@@ -1198,6 +910,11 @@ async function bootstrap() {
   }
   renderShell();
   switchTab(state.tab);
+}
+
+async function bootstrap() {
+  hydrate();
+  await doBootstrap();
 }
 
 bootstrap().catch((e) => {

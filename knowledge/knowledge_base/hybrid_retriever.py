@@ -33,7 +33,8 @@ class HybridRetriever:
         embedder: Embedder,
         graph_store=None,  # Optional - GraphStore
         semantic_weight: float = 0.6,
-        keyword_weight: float = 0.4
+        keyword_weight: float = 0.4,
+        graph_weight: float = 0.0
     ):
         """
         Initialize the hybrid retriever.
@@ -44,12 +45,21 @@ class HybridRetriever:
             graph_store: Optional Neo4j graph store for keyword search
             semantic_weight: Weight for vector search results (default: 0.6)
             keyword_weight: Weight for keyword search results (default: 0.4)
+            graph_weight: Weight for graph entity search results (default: 0.0, set to 0.2 when graph available)
         """
         self.vector_store = vector_store
         self.embedder = embedder
         self.graph_store = graph_store
-        self.semantic_weight = semantic_weight
-        self.keyword_weight = keyword_weight
+
+        # Auto-adjust weights when graph is available
+        if graph_store and graph_weight == 0.0:
+            self.semantic_weight = 0.5
+            self.keyword_weight = 0.3
+            self.graph_weight = 0.2
+        else:
+            self.semantic_weight = semantic_weight
+            self.keyword_weight = keyword_weight
+            self.graph_weight = graph_weight
 
     def search(
         self,
@@ -241,10 +251,15 @@ class HybridRetriever:
         if self.graph_store:
             keyword_results = self._keyword_search(query, kb_ids, fetch_k, filter_doc_id, filter_chapter_id)
 
+        # Graph entity search (third signal when graph available)
+        graph_results = []
+        if self.graph_store and self.graph_weight > 0:
+            graph_results = self._graph_entity_search(query, kb_ids, fetch_k, filter_doc_id, filter_chapter_id)
+
         # If only one method available, return its results
-        if not keyword_results:
-            return semantic_results[:top_k]
-        if not semantic_results:
+        if not keyword_results and not graph_results:
+            return self._enrich_results(semantic_results[:top_k])
+        if not semantic_results and not graph_results:
             return keyword_results[:top_k]
 
         # Reciprocal Rank Fusion
@@ -278,14 +293,22 @@ class HybridRetriever:
             else:
                 scores[key] = {"result": result, "score": rrf_score}
 
+        # Process graph entity results
+        for rank, result in enumerate(graph_results, 1):
+            key = get_key(result)
+            rrf_score = self.graph_weight / (rrf_k + rank)
+            if key in scores:
+                scores[key]["score"] += rrf_score
+            else:
+                scores[key] = {"result": result, "score": rrf_score}
+
         # Sort by combined score
         fused = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
 
-        # Return top_k with updated scores
+        # Return top_k with updated scores and graph enrichment
         results = []
         for item in fused[:top_k]:
             result = item["result"]
-            # Update score to RRF score
             result = SearchResult(
                 chunk=result.chunk,
                 score=item["score"],
@@ -295,7 +318,7 @@ class HybridRetriever:
             )
             results.append(result)
 
-        return results
+        return self._enrich_results(results)
 
     def search_with_context(
         self,
@@ -407,6 +430,120 @@ class HybridRetriever:
         except Exception as e:
             logger.debug(f"Failed to get chunk context: {e}")
             return {"before": [], "after": []}
+
+    def _graph_entity_search(
+        self,
+        query: str,
+        kb_ids: list[str],
+        top_k: int,
+        filter_doc_id: Optional[str] = None,
+        filter_chapter_id: Optional[str] = None
+    ) -> list[SearchResult]:
+        """Entity-based graph search: match query terms against entity names, then find chunks via MENTIONS."""
+        if not self.graph_store:
+            return []
+
+        results = []
+        try:
+            for kb_id in kb_ids:
+                # Search entities matching query terms
+                entities = self.graph_store.search_entities(kb_id, query, top_k=10)
+
+                for entity in entities:
+                    entity_name = entity.get("name", "")
+                    if not entity_name:
+                        continue
+
+                    # Find chunks connected to documents that mention this entity
+                    refs = self.graph_store.find_entity_cross_references(
+                        kb_id, entity_name, kb_ids=[kb_id]
+                    )
+
+                    for ref in refs:
+                        doc_id = ref.get("document_id", "")
+                        if filter_doc_id and doc_id != filter_doc_id:
+                            continue
+
+                        doc_title = ref.get("document_title", "")
+
+                        # Get chunks from this document that are near entity mentions
+                        # Use full-text search scoped to document as approximation
+                        chunk_results = self.graph_store.full_text_search(kb_id, entity_name, top_k=5)
+                        for cr in chunk_results:
+                            if cr.get("document_id") != doc_id:
+                                continue
+                            if filter_chapter_id and cr.get("chapter_id") != filter_chapter_id:
+                                continue
+
+                            chunk = Chunk(
+                                id=cr.get("chunk_id", ""),
+                                kb_id=kb_id,
+                                document_id=doc_id,
+                                chapter_id=cr.get("chapter_id"),
+                                text=cr.get("text", ""),
+                                page_number=cr.get("page_number"),
+                                position=cr.get("position", 0),
+                            )
+                            result = SearchResult(
+                                chunk=chunk,
+                                score=cr.get("score", 0),
+                                document_title=doc_title,
+                                document_author=cr.get("document_author", ""),
+                                chapter_title=cr.get("chapter_title")
+                            )
+                            results.append(result)
+
+            # Deduplicate by chunk ID
+            seen = set()
+            deduped = []
+            for r in results:
+                if r.chunk.id not in seen:
+                    seen.add(r.chunk.id)
+                    deduped.append(r)
+
+            deduped.sort(key=lambda x: x.score, reverse=True)
+            return deduped[:top_k]
+
+        except Exception as e:
+            logger.error(f"Graph entity search failed: {e}")
+            return []
+
+    def _enrich_results(self, results: list[SearchResult]) -> list[SearchResult]:
+        """Enrich search results with section_path and related_concepts from graph."""
+        if not self.graph_store or not results:
+            return results
+
+        enriched = []
+        for result in results:
+            section_path = None
+            related_concepts = None
+
+            try:
+                section_path = self.graph_store.get_chunk_section_path(
+                    result.chunk.kb_id, result.chunk.id
+                ) or None
+            except Exception:
+                pass
+
+            try:
+                concepts = self.graph_store.get_chunk_related_concepts(
+                    result.chunk.kb_id, result.chunk.id
+                )
+                related_concepts = concepts if concepts else None
+            except Exception:
+                pass
+
+            enriched.append(SearchResult(
+                chunk=result.chunk,
+                score=result.score,
+                document_title=result.document_title,
+                document_author=result.document_author,
+                chapter_title=result.chapter_title,
+                section_path=section_path,
+                related_concepts=related_concepts
+            ))
+
+        return enriched
 
     def find_related_documents(
         self,

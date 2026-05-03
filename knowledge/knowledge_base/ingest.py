@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Callable, TYPE_CHECKING
 
-from .models import Document, Chapter, Chunk, KnowledgeBase, Entity, generate_id
+from .models import Document, Chapter, Section, Chunk, KnowledgeBase, Entity, generate_id
 from .registry import KBRegistry
 from .embedder import Embedder
 from .chunker import TextChunker
@@ -68,7 +68,8 @@ class KBIngestionPipeline:
         source_file: str,
         total_pages: int = 0,
         ocr_required: bool = False,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        structure: Optional[list[dict]] = None
     ) -> Document:
         """
         Ingest a document into a knowledge base.
@@ -82,6 +83,7 @@ class KBIngestionPipeline:
             total_pages: Total page count
             ocr_required: Whether OCR was needed
             progress_callback: Optional callback(current, total, message)
+            structure: Optional hierarchical structure tree from pdf_analyzer
 
         Returns:
             Created Document object
@@ -109,6 +111,19 @@ class KBIngestionPipeline:
                 logger.info(f"Added document '{title}' to graph store")
             except Exception as e:
                 logger.error(f"Failed to add document to graph store: {e}")
+
+        # Store hierarchical section structure in graph if available
+        section_page_map = {}  # section_id -> (start_page, end_page) for chunk mapping
+        if structure and self.graph_store:
+            try:
+                sections = self._walk_structure(structure, doc.id, kb_id)
+                doc.sections = sections
+                # Build page range map for associating chunks with sections
+                for s in sections:
+                    section_page_map[s.id] = (s.start_page, s.end_page)
+                logger.info(f"Stored {len(sections)} sections in graph for '{title}'")
+            except Exception as e:
+                logger.error(f"Failed to store section hierarchy: {e}")
 
         total_chunks = 0
         total_chapters = len(chapters)
@@ -198,6 +213,15 @@ class KBIngestionPipeline:
                 except Exception as e:
                     logger.error(f"Failed to add chunks to graph store: {e}")
 
+            # Link chunks to the most specific section by page number
+            if section_page_map and self.graph_store:
+                try:
+                    self._link_chunks_to_sections(
+                        kb_id, chunk_data, section_page_map, chapter.start_page
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to link chunks to sections: {e}")
+
             # Extract and store entities if extractor available
             if self.entity_extractor and self.graph_store:
                 try:
@@ -252,6 +276,64 @@ class KBIngestionPipeline:
         entity_msg = f", {total_entities} entities" if total_entities > 0 else ""
         logger.info(f"Ingested document '{title}' into KB '{kb_id}': {len(doc.chapters)} chapters, {total_chunks} chunks{entity_msg}")
         return doc
+
+    def _walk_structure(self, structure: list[dict], document_id: str, kb_id: str,
+                        parent_id: str = None) -> list[Section]:
+        """Recursively walk a hierarchical structure tree and create Section nodes in graph."""
+        sections = []
+        for order, node in enumerate(structure):
+            section = Section(
+                id=generate_id(),
+                document_id=document_id,
+                parent_id=parent_id,
+                level=node.get("level", 0),
+                section_type=node.get("type", "chapter"),
+                number=node.get("number", order + 1),
+                title=node.get("title", "Untitled"),
+                start_page=node.get("start_page", 0),
+                order=order,
+            )
+            self.graph_store.add_section(kb_id, section, document_id)
+            sections.append(section)
+
+            children = node.get("children", [])
+            if children:
+                child_sections = self._walk_structure(children, document_id, kb_id, section.id)
+                sections.extend(child_sections)
+                # Set end_page from last child
+                if child_sections:
+                    section.end_page = child_sections[-1].end_page or child_sections[-1].start_page
+
+        # Set end_page for each section based on next sibling's start_page
+        for i, s in enumerate(structure):
+            if i + 1 < len(structure):
+                sections[i].end_page = structure[i + 1].get("start_page", sections[i].start_page)
+
+        return sections
+
+    def _link_chunks_to_sections(self, kb_id: str, chunks: list[dict],
+                                  section_page_map: dict, chapter_start_page: int):
+        """Assign chunks to the most specific (deepest) section by page number."""
+        # Sort sections by level descending so we match most specific first
+        sorted_sections = sorted(
+            section_page_map.items(),
+            key=lambda x: -(x[1][0] or 0)  # Sort by start_page descending for deepest-first
+        )
+
+        for chunk in chunks:
+            page = chunk.get("page_number") or chapter_start_page
+            best_section_id = None
+            best_start = -1
+
+            for section_id, (start, end) in sorted_sections:
+                if start and start <= page:
+                    if end is None or page <= end:
+                        if start > best_start:
+                            best_section_id = section_id
+                            best_start = start
+
+            if best_section_id:
+                self.graph_store.add_section_chunks(kb_id, best_section_id, [chunk["id"]])
 
     def ingest_text(
         self,
@@ -339,7 +421,7 @@ class KBIngestionPipeline:
 
 def create_ingestion_pipeline(
     kb_dir: Path,
-    enable_graph: bool = True,
+    enable_graph: bool = None,
     enable_entities: bool = True,
     registry: KBRegistry = None
 ) -> KBIngestionPipeline:
@@ -356,6 +438,10 @@ def create_ingestion_pipeline(
         Configured KBIngestionPipeline
     """
     from config.settings import settings
+
+    # Respect config flag when caller doesn't specify
+    if enable_graph is None:
+        enable_graph = settings.neo4j_enabled
 
     if registry is None:
         registry = KBRegistry(kb_dir)

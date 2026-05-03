@@ -89,6 +89,9 @@ class Settings:
         os.getenv("MCP_PORT", _cfg.get("mcp", {}).get("port", 8002))
     )
 
+    # Gateway
+    gateway_url: str = _cfg.get("gateway", {}).get("url", "http://localhost:8788")
+
     # Playwright
     playwright_mcp_url: str = _cfg.get("playwright", {}).get(
         "mcp_url", "http://localhost:3000/sse"
