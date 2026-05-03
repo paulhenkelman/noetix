@@ -44,3 +44,7 @@ auth.json
 # Playwright cache
 .cache/
 .claude/settings.local.json
+
+# Per-machine MCP registrations (claude mcp add writes absolute paths;
+# always per-host, never committed)
+.mcp.json

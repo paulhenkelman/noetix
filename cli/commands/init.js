@@ -486,9 +486,19 @@ async function installBackend(installDir, config, auto = false, deployOption) {
     }
   }
 
-  // Create data directories
+  // Create data directories — but leave existing symlinks or dirs alone.
+  // On at least one deployment these paths are symlinks to a sibling project's
+  // data store; mkdirSync(recursive:true) on a symlink target is normally
+  // safe, but `git stash --include-untracked` upstream of this script can
+  // capture the symlinks themselves, in which case we'd want to never
+  // resurrect them as empty real directories here.
   for (const d of ['uploads', 'library', 'knowledge_bases', 'data']) {
-    fs.mkdirSync(path.join(knowledgeDir, d), { recursive: true });
+    const p = path.join(knowledgeDir, d);
+    try {
+      const stat = fs.lstatSync(p);
+      if (stat.isSymbolicLink() || stat.isDirectory()) continue;
+    } catch { /* not present */ }
+    fs.mkdirSync(p, { recursive: true });
   }
 
   // Choose deployment method

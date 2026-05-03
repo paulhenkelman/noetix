@@ -125,8 +125,15 @@ Proxies all API requests to the backend. Serves the built frontend SPA. Key endp
 - `noetix.config` — Project name, MCP server settings
 - `ui.config` — Server host/port, backend URL, SOCKS proxy, Playwright, frontend
 
-### MCP server config (`.claude/settings.json`)
-Configures noetix-kb and noetix-content as stdio MCP servers for Claude Code with `REMOTE_BASE` pointing to pacgpu1.
+### MCP server config (`.mcp.json`, gitignored)
+The installer (`noetix init` in `agent` or `full` mode) registers `noetix-kb` and `noetix-content` with Claude Code via `claude mcp add -s project`, which writes absolute paths into `.mcp.json` at the install root. That file is **per-machine** and gitignored — never commit it. To re-register from scratch: re-run `./install.sh -y` and the installer removes any prior registration before adding a fresh one.
+
+`.claude/settings.local.json` is also gitignored and may carry per-machine MCP overrides (e.g., `host-control`, `playwright`) that don't make sense to commit.
+
+### Runtime data directories
+`knowledge/{data, knowledge_bases, library, uploads}` are gitignored and populated by the backend at runtime. **They may also be symlinks** to a shared store outside the repo — pacgpu1 has them pointing at `~/src/projects/tts/{...}` so multiple projects share one corpus.
+
+Caveat: `git stash --include-untracked` (without further filters) **captures symlinks** at those paths and on `apply` may fail to restore them cleanly, leaving the install with empty real directories where the data used to be visible. If you must stash before pulling, target only the files you intend to: e.g., `git stash push .claude/settings.json ui/whatever.js`. The installer's `mkdirSync(recursive:true)` is symlink-aware and will not overwrite an existing symlink, but it can't recover one that was already moved into a stash.
 
 ## Content Processing Workflows
 
